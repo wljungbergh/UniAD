@@ -14,6 +14,7 @@ This repository differs from the original UniAD repository in the following ways
 ```bash
 mkdir checkpoints
 wget "https://github.com/OpenDriveLab/UniAD/releases/download/v1.0.1/uniad_base_e2e.pth" -P checkpoints
+wget https://github.com/OpenDriveLab/UniAD/releases/download/v1.0/motion_anchor_infos_mode6.pkl -P checkpoints
 ```
 
 2. Build the `.sif` file:
