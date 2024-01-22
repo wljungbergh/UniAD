@@ -17,6 +17,16 @@ from projects.mmdet3d_plugin.datasets.nuscenes_e2e_dataset import (
 )
 from tools.data_converter.uniad_nuscenes_converter import _get_can_bus_info
 
+
+NUSCENES_CAM_ORDER = [
+    "CAM_FRONT",
+    "CAM_FRONT_RIGHT",
+    "CAM_FRONT_LEFT",
+    "CAM_BACK",
+    "CAM_BACK_LEFT",
+    "CAM_BACK_RIGHT",
+]
+
 # NOTE: this is what they do to the can bus signals
 # in preproc of the dataset
 ### pos 3 | m in global frame
@@ -52,7 +62,7 @@ from tools.data_converter.uniad_nuscenes_converter import _get_can_bus_info
 class UniADInferenceInput:
     imgs: np.ndarray
     """shape: (n-cams (6), 3, h (900), w (1600)) | images without any preprocessing. should be in RGB order"""
-    pose: np.ndarray
+    lidar_pose: np.ndarray
     """shape: (3, 4) | lidar pose in global frame"""
     lidar2img: np.ndarray
     """shape: (n-cams (6), 4, 4) | lidar2img transformation matrix, i.e., lidar2cam @ camera2img"""
@@ -129,10 +139,10 @@ class UniADRunner:
         imgs = imgs.unsqueeze(0)
         # move other input to the device as well
         l2g_t = (
-            torch.from_numpy(input.pose[:3, 3]).to(self.device).unsqueeze(0)
+            torch.from_numpy(input.lidar_pose[:3, 3]).to(self.device).unsqueeze(0)
         )  # should be 1x3
         l2g_r_mat = (
-            torch.from_numpy(input.pose[:3, :3]).to(self.device).unsqueeze(0)
+            torch.from_numpy(input.lidar_pose[:3, :3]).to(self.device).unsqueeze(0)
         )  # should be 1x3x3
         timestamp = (
             torch.from_numpy(np.array([input.timestamp])).to(self.device).unsqueeze(0)
@@ -337,7 +347,7 @@ if __name__ == "__main__":
 
     inference_input = UniADInferenceInput(
         imgs=images,
-        pose=lidar2global,
+        lidar_pose=lidar2global,
         lidar2img=lidar2img,
         timestamp=timestamp,
         can_bus_signals=canbus_signals,
