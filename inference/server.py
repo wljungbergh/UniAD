@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from PIL import Image
 from pydantic import BaseModel
 
-from .runner import NUSCENES_CAM_ORDER, UniADInferenceInput, UniADRunner
+from inference.runner import NUSCENES_CAM_ORDER, UniADInferenceInput, UniADRunner
 
 
 app = FastAPI()
@@ -53,10 +53,15 @@ class InferenceOutputs(BaseModel):
 @app.post("/infer")
 async def infer(data: InferenceInputs) -> InferenceOutputs:
     uniad_input = _build_uniad_input(data)
-    uniad_output = uniad_runner.forward_inference(uniad_input)
+    uniad_output = uniad_runner.forward_inference_dummy(uniad_input)
     return InferenceOutputs(
         trajectory=uniad_output.trajectory.tolist(),
     )
+
+
+@app.get("/alive")
+async def alive() -> bool:
+    return True
 
 
 def _build_uniad_input(data: InferenceInputs) -> UniADInferenceInput:
@@ -94,7 +99,7 @@ def _pngs_to_numpy(pngs: List[bytes]) -> np.ndarray:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--config_path", type=str, required=True)
-    parser.add_argument("--checkpoint_path", type=str, required=True)
+    parser.add_argument("--checkpoint_path", type=str, default=None)
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--host", type=str, default="0.0.0.0")
     parser.add_argument("--port", type=int, default=9000)
