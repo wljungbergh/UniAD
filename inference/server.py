@@ -1,6 +1,6 @@
 import argparse
 import io
-from typing import Dict, List
+from typing import Dict, List, Literal
 
 import numpy as np
 import torch
@@ -9,26 +9,45 @@ from fastapi import FastAPI
 from PIL import Image
 from pydantic import BaseModel
 
-from .runner import (
-    NUSCENES_CAM_ORDER,
-    UniADInferenceInput,
-    UniADRunner,
-)
+from .runner import NUSCENES_CAM_ORDER, UniADInferenceInput, UniADRunner
 
 
 app = FastAPI()
 
 
+class Calibration(BaseModel):
+    """Calibration data."""
+
+    camera2image: Dict[str, List[List[float]]]
+    """Camera intrinsics. The keys are the camera names."""
+    camera2ego: Dict[str, List[List[float]]]
+    """Camera extrinsics. The keys are the camera names."""
+    lidar2ego: List[List[float]]
+    """Lidar extrinsics."""
+
+
 class InferenceInputs(BaseModel):
+    """Input data for inference."""
+
     images: Dict[str, bytes]
-    ego_pose: List[List[float]]  # convertable to np.array
-    canbus: List[List[float]]  # convertable to np.array
+    """Camera images in PNG format. The keys are the camera names."""
+    ego2world: List[List[float]]
+    """Ego pose in the world frame."""
+    canbus: List[List[float]]
+    """CAN bus signals."""
     timestamp: int  # in microseconds
-    command: int
+    """Timestamp of the current frame in microseconds."""
+    command: Literal[0, 1, 2]
+    """Command of the current frame."""
+    calibration: Calibration
+    """Calibration data.""" ""
 
 
 class InferenceOutputs(BaseModel):
+    """Output / result from running the model."""
+
     trajectory: List[List[float]]
+    """Predicted trajectory in the world frame. A list of (x, y) points in BEV."""
 
 
 @app.post("/infer")
@@ -42,12 +61,20 @@ async def infer(data: InferenceInputs) -> InferenceOutputs:
 
 def _build_uniad_input(data: InferenceInputs) -> UniADInferenceInput:
     imgs = _pngs_to_numpy([data.images[c] for c in NUSCENES_CAM_ORDER])
-    ego_pose = np.array(data.ego_pose)
-    lidar_pose = ego_pose  # TODO: fix
-    lidar2img = ego_pose  # TODO: fix
+    ego2world = np.array(data.ego2world)
+    lidar2ego = np.array(data.calibration.lidar2ego)
+    lidar2world = lidar2ego @ ego2world
+    lidar2imgs = []
+    for cam in NUSCENES_CAM_ORDER:
+        ego2cam = np.linalg.inv(np.array(data.calibration.camera2ego[cam]))
+        cam2img = np.array(data.calibration.camera2image[cam])
+        lidar2cam = lidar2ego @ ego2cam
+        lidar2img = lidar2cam @ cam2img
+        lidar2imgs.append(lidar2img)
+    lidar2img = np.stack(lidar2imgs, axis=0)
     return UniADInferenceInput(
         imgs=imgs,
-        lidar_pose=lidar_pose,
+        lidar_pose=lidar2world,
         lidar2img=lidar2img,
         can_bus_signals=np.array(data.canbus),
         timestamp=data.timestamp / 1e6,  # convert to seconds
