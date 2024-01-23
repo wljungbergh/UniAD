@@ -122,6 +122,7 @@ class UniADRunner:
         self._preproc_canbus(input)
         # TODO: make torch version of the preproc (for images) pipeline instead of using mmcv version'
 
+    @torch.no_grad()
     def forward_inference(self, input: UniADInferenceInput) -> UniADInferenceOutput:
         """Run inference without all the preprocessed dataset stuff."""
         # input to preproc shoudl be dict(img=imgs) where imgs: n x h x w x c in bgr format
@@ -194,7 +195,7 @@ class UniADRunner:
             outs_motion, self.model.occ_head.detach_query_pos
         )
         _, pred_ins_logits = self.model.occ_head.forward(bev_embed, ins_query=ins_query)
-        pred_ins_logits = pred_ins_logits[:, :, : 1 + self.model.n_future]
+        pred_ins_logits = pred_ins_logits[:, :, : 1 + self.model.occ_head.n_future]
         pred_ins_sigmoid = pred_ins_logits.sigmoid()
         pred_seg_scores = pred_ins_sigmoid.max(1)[0]
         occ_mask = (
@@ -208,10 +209,12 @@ class UniADRunner:
             outs_motion["bev_pos"],
             outs_motion["sdc_traj_query"],
             outs_motion["sdc_track_query"],
-            command=input.command,
+            command=torch.tensor(input.command).to(self.device).unsqueeze(0),
         )
 
-        return UniADInferenceOutput(trajectory=outs_planning["sdc_traj"].cpu().numpy())
+        return UniADInferenceOutput(
+            trajectory=outs_planning["sdc_traj"][0].cpu().numpy()
+        )
 
     def forward_inference_dummy(
         self, input: UniADInferenceInput
@@ -365,13 +368,11 @@ if __name__ == "__main__":
         command=2,  # straight
     )
 
-    plan = runner.forward_inference_dummy(inference_input)
+    plan = runner.forward_inference(inference_input)
     # plot in bev
     fig, ax = plt.subplots(1, 1)
     ax.plot(plan.trajectory[:, 0], plan.trajectory[:, 1], "r-*")
 
-    ax.set_xlim(-10, 90)
-    ax.set_ylim(-50, 50)
     ax.set_aspect("equal")
     ax.set_xlabel("x (m)")
     ax.set_ylabel("y (m)")
