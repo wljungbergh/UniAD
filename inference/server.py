@@ -22,7 +22,7 @@ app = FastAPI()
 class InferenceInputs(BaseModel):
     images: Dict[str, bytes]
     ego_pose: List[List[float]]  # convertable to np.array
-    canbus: List[List[float]]  # convertable to np.array
+    canbus: List[float]  # convertable to np.array
     timestamp: float
     command: int
 

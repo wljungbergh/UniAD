@@ -61,7 +61,7 @@ NUSCENES_CAM_ORDER = [
 @dataclass
 class UniADInferenceInput:
     imgs: np.ndarray
-    """shape: (n-cams (6), 3, h (900), w (1600)) | images without any preprocessing. should be in RGB order"""
+    """shape: (n-cams (6), 3, h (900), w (1600)) | images without any preprocessing. should be in RGB order as uint8"""
     lidar_pose: np.ndarray
     """shape: (3, 4) | lidar pose in global frame"""
     lidar2img: np.ndarray
@@ -69,7 +69,7 @@ class UniADInferenceInput:
     timestamp: float
     """timestamp of the current frame in seconds"""
     can_bus_signals: np.ndarray
-    """shape: (18,) | see above for details"""
+    """shape: (16,) | see above for details"""
     command: int
     """0: right, 1: left, 2: straight"""
 
@@ -122,18 +122,8 @@ class UniADRunner:
         self._preproc_canbus(input)
         # TODO: make torch version of the preproc (for images) pipeline instead of using mmcv version'
 
-    def forward_inference(
-        self, input: UniADInferenceInput, command: int = 2
-    ) -> UniADInferenceOutput:
-        """Run inference without all the preprocessed dataset stuff.
-
-        This functions is a modified version of the forward_test function in UniAD.
-
-        Args:
-            inputs: UniADInferenceInput
-            command: int, 0: right, 1: left, 2: straight
-
-        """
+    def forward_inference(self, input: UniADInferenceInput) -> UniADInferenceOutput:
+        """Run inference without all the preprocessed dataset stuff."""
         # input to preproc shoudl be dict(img=imgs) where imgs: n x h x w x c in bgr format
         # permute rgb -> bgr
         imgs = input.imgs[:, ::-1, :, :]
@@ -166,14 +156,16 @@ class UniADRunner:
         self.preproc(input)
 
         # we need to emulate the img_metas here in order to run the model.
-        img_metas = {
-            "scene_token": self.scene_token,
-            "can_bus": input.can_bus_signals,
-            "lidar2img": input.lidar2img,  # lidar2cam @ camera2img
-            "img_shape": preproc_output["img_shape"],
-            # we need this as they are used in the model somewhere.
-            "box_type_3d": LiDARInstance3DBoxes,
-        }
+        img_metas = [
+            {
+                "scene_token": self.scene_token,
+                "can_bus": input.can_bus_signals,
+                "lidar2img": input.lidar2img,  # lidar2cam @ camera2img
+                "img_shape": preproc_output["img_shape"],
+                # we need this as they are used in the model somewhere.
+                "box_type_3d": LiDARInstance3DBoxes,
+            }
+        ]
 
         outs_track = self.model.simple_test_track(
             imgs, l2g_t, l2g_r_mat, img_metas, timestamp
@@ -188,7 +180,7 @@ class UniADRunner:
 
         # get the motion
         _, outs_motion = self.model.motion_head.forward_test(
-            bev_embed, outs_track, outs_seg
+            bev_embed, outs_track[0], outs_seg
         )
         outs_motion["bev_pos"] = outs_track[0]["bev_pos"]
 
@@ -216,19 +208,80 @@ class UniADRunner:
             outs_motion["bev_pos"],
             outs_motion["sdc_traj_query"],
             outs_motion["sdc_track_query"],
-            command=command,
+            command=input.command,
         )
 
         return UniADInferenceOutput(trajectory=outs_planning["sdc_traj"].cpu().numpy())
 
+    def forward_inference_dummy(
+        self, input: UniADInferenceInput
+    ) -> UniADInferenceOutput:
+        """Run a dummy version that only takes the first few steps in the pipeline and then returns a dummy output."""
+        # permute rgb -> bgr
+        imgs = input.imgs[:, ::-1, :, :]
+        # flip nchw to nhwc
+        imgs = np.moveaxis(imgs, 1, -1)
+        preproc_input = dict(img=imgs)
+        # run it through the inference pipeline (which is same as eval pipeline except not loading annotations)
+        preproc_output = self.preproc_pipeline(preproc_input)
+        # collect in array as will convert to tensor, but currently it is a list of arrays (n, h, w, c)
+        imgs = np.array(preproc_output["img"])
+        # move back to the nchw format
+        imgs = np.moveaxis(imgs, -1, 1)
+        # convert to tensor and move to device
+        imgs = torch.from_numpy(imgs).to(self.device)
+        # img should be (1, n, 3, h, w)
+        imgs = imgs.unsqueeze(0)
+        # move other input to the device as well
+        l2g_t = (
+            torch.from_numpy(input.lidar_pose[:3, 3]).to(self.device).unsqueeze(0)
+        )  # should be 1x3
+        l2g_r_mat = (
+            torch.from_numpy(input.lidar_pose[:3, :3]).to(self.device).unsqueeze(0)
+        )  # should be 1x3x3
+        timestamp = (
+            torch.from_numpy(np.array([input.timestamp])).to(self.device).unsqueeze(0)
+        )
+        # we are preproccessing the canbus signals only currently.
+        # TODO: fix preproc to include the image preprocessing as well. this is currently done
+        # in mmcv (i.e., numpy) and not torch.
+        self.preproc(input)
+
+        # we need to emulate the img_metas here in order to run the model.
+        img_metas = [
+            {
+                "scene_token": self.scene_token,
+                "can_bus": input.can_bus_signals,
+                "lidar2img": input.lidar2img,  # lidar2cam @ camera2img
+                "img_shape": preproc_output["img_shape"],
+                # we need this as they are used in the model somewhere.
+                "box_type_3d": LiDARInstance3DBoxes,
+            }
+        ]
+
+        outs_track = self.model.simple_test_track(
+            imgs, l2g_t, l2g_r_mat, img_metas, timestamp
+        )
+        outs_track[0] = self.model.upsample_bev_if_tiny(outs_track[0])
+
+        # get the bev embedding
+        bev_embed = outs_track[0]["bev_embed"]
+
+        # get the segmentation result using the bev embedding
+        outs_seg = self.model.seg_head.forward(bev_embed)
+
+        # end of the initial pipeline, starting dummy stuff here
+        # constant velocity model with a straight line
+        velx = img_metas[0]["can_bus"][13]
+        vely = 0
+        t = np.arange(1, 7) * 0.5
+        x = velx * t
+        y = vely * t
+        traj = np.stack([x, y], axis=1)
+        return UniADInferenceOutput(trajectory=traj)
+
 
 if __name__ == "__main__":
-    # config = Config.fromfile("/UniAD/projects/configs/stage2_e2e/inference_e2e.py")
-    # model = build_model(config.model, train_cfg=None, test_cfg=config.get("test_cfg"))
-    # preproc_pipeline = Compose(config.inference_pipeline)
-
-    # maybe try with this sample token
-    # 30e55a3ec6184d8cb1944b39ba19d622
     device = "cuda" if torch.cuda.is_available() else "cpu"
     runner = UniADRunner(
         config_path="/UniAD/projects/configs/stage2_e2e/inference_e2e.py",
@@ -240,15 +293,16 @@ if __name__ == "__main__":
     from nuscenes.nuscenes import NuScenes
     from nuscenes.can_bus.can_bus_api import NuScenesCanBus
     import matplotlib.pyplot as plt
+    import cv2
 
     # load the first surround-cam in nusc mini
-    nusc = NuScenes(version="v1.0-mini", dataroot="/data/nuscenes")
-    nusc_can = NuScenesCanBus(dataroot="/data/nuscenes")
-    scene = "scene-0061"
+    nusc = NuScenes(version="v1.0-mini", dataroot="./data/nuscenes")
+    nusc_can = NuScenesCanBus(dataroot="./data/nuscenes")
+    scene_name = "scene-0061"
 
+    scene = [s for s in nusc.scene if s["name"] == scene_name][0]
     # get the first sample in the scene
-    sample_token = nusc.get("sample", scene)["first_sample_token"]
-    sample = nusc.get("sample", sample_token)
+    sample = nusc.get("sample", scene["first_sample_token"])
     timestamp = sample["timestamp"]
     # get the cameras for this sample
     camera_types = [
@@ -282,34 +336,46 @@ if __name__ == "__main__":
         camera2img.append(c2i)
 
     # load the images in rgb hwc format
-    images = ...
+    images = []
+    for filepath in image_filepaths:
+        img = cv2.imread(filepath)
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        images.append(img)
+    images = np.array(images)
 
-    # get the calibration for each camera
-    camera_calibs = [nusc.get("calibrated_sensor", token) for token in camera_tokens]
-    # get the lidar calibration
-    lidar_calib = nusc.get("calibrated_sensor", sample["data"]["LIDAR_TOP"])
+    lidar_sample_data = nusc.get("sample_data", sample["data"]["LIDAR_TOP"])
+    ego_pose = nusc.get("ego_pose", lidar_sample_data["ego_pose_token"])
 
-    ego_pose = nusc.get("ego_pose", sample["ego_pose_token"])
+    lidar2camera = [np.eye(4) for _ in range(len(camera2img))]  # fix this
 
-    lidar2camera = ...  # fix this
+    lidar2img = [np.eye(4) for _ in range(len(camera2img))]  # fix this
 
-    lidar2img = ...  # fix this
-
-    lidar2ego = ...  # fix this
+    lidar2ego = np.eye(4)  # fix this
     lidar2global = lidar2ego @ ego2global
 
     # get the canbus signals
-    canbus_signals = _get_can_bus_info(nusc, nusc_can, sample)
+    canbus_signals = _get_can_bus_info(nusc, nusc_can, sample)[:16]
 
     inference_input = UniADInferenceInput(
-        imgs=images,
+        imgs=images.transpose(0, 3, 1, 2),  # nchw
         lidar_pose=lidar2global,
         lidar2img=lidar2img,
         timestamp=timestamp,
         can_bus_signals=canbus_signals,
+        command=2,  # straight
     )
 
-    plan = runner.forward_inference(inference_input, command=2)
+    plan = runner.forward_inference_dummy(inference_input)
     # plot in bev
     fig, ax = plt.subplots(1, 1)
-    # do stuff here
+    ax.plot(plan.trajectory[:, 0], plan.trajectory[:, 1], "r-*")
+
+    ax.set_xlim(-10, 90)
+    ax.set_ylim(-50, 50)
+    ax.set_aspect("equal")
+    ax.set_xlabel("x (m)")
+    ax.set_ylabel("y (m)")
+
+    # save fig
+    fig.savefig("forward_dummy.png")
+    plt.close(fig)
