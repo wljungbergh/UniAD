@@ -53,7 +53,7 @@ class InferenceOutputs(BaseModel):
 @app.post("/infer")
 async def infer(data: InferenceInputs) -> InferenceOutputs:
     uniad_input = _build_uniad_input(data)
-    uniad_output = uniad_runner.forward_inference_dummy(uniad_input)
+    uniad_output = uniad_runner.forward_inference(uniad_input)
     return InferenceOutputs(
         trajectory=uniad_output.trajectory.tolist(),
     )
