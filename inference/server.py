@@ -23,7 +23,7 @@ class InferenceInputs(BaseModel):
     images: Dict[str, bytes]
     ego_pose: List[List[float]]  # convertable to np.array
     canbus: List[List[float]]  # convertable to np.array
-    timestamp: float
+    timestamp: int  # in microseconds
     command: int
 
 
@@ -50,7 +50,7 @@ def _build_uniad_input(data: InferenceInputs) -> UniADInferenceInput:
         lidar_pose=lidar_pose,
         lidar2img=lidar2img,
         can_bus_signals=np.array(data.canbus),
-        timestamp=data.timestamp,
+        timestamp=data.timestamp / 1e6,  # convert to seconds
         command=data.command,
     )
 
