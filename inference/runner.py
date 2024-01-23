@@ -12,7 +12,7 @@ from pyquaternion import Quaternion
 import torch
 
 from projects.mmdet3d_plugin.uniad.detectors.uniad_e2e import UniAD
-from projects.mmdet3d_plugin.datasets.nuscenes_e2e_dataset import (
+from nuscenes.eval.common.utils import (
     quaternion_yaw,
 )
 from tools.data_converter.uniad_nuscenes_converter import _get_can_bus_info
@@ -105,9 +105,22 @@ class UniADRunner:
         # making a new scene token for each new scene. these are used in the model.
         self.scene_token = uuid.uuid4()
 
+    def _preproc_canbus(self, input: UniADInferenceInput):
+        """Preprocesses the raw canbus signals from nuscenes."""
+        rotation = Quaternion(input.can_bus_signals[3:7])
+        patch_angle = quaternion_yaw(rotation) / np.pi * 180
+        if patch_angle < 0:
+            patch_angle += 360
+        # extend the canbus signals with the patch angle, first in radians then in degrees
+        input.can_bus_signals = np.append(
+            input.can_bus_signals, patch_angle / 180 * np.pi
+        )
+        input.can_bus_signals = np.append(input.can_bus_signals, patch_angle)
+
     def preproc(self, input: UniADInferenceInput):
-        # TODO: make torch version of the preproc pipeline instead of using mmcv version'
-        raise NotImplementedError
+        """Preprocess the input data."""
+        self._preproc_canbus(input)
+        # TODO: make torch version of the preproc (for images) pipeline instead of using mmcv version'
 
     def forward_inference(
         self, input: UniADInferenceInput, command: int = 2
@@ -147,6 +160,10 @@ class UniADRunner:
         timestamp = (
             torch.from_numpy(np.array([input.timestamp])).to(self.device).unsqueeze(0)
         )
+        # we are preproccessing the canbus signals only currently.
+        # TODO: fix preproc to include the image preprocessing as well. this is currently done
+        # in mmcv (i.e., numpy) and not torch.
+        self.preproc(input)
 
         # we need to emulate the img_metas here in order to run the model.
         img_metas = {
@@ -203,67 +220,6 @@ class UniADRunner:
         )
 
         return UniADInferenceOutput(trajectory=outs_planning["sdc_traj"].cpu().numpy())
-
-    def _emulate_nuscenes_canbus_signals(
-        self, prev_pose, prev_timestamp, prev_vel, current_pose, current_timestamp
-    ):
-        """Emulate the can bus signals using backward difference.
-
-        Args:
-            prev_pose: np.ndarray, shape: (3, 4)
-            prev_timestamp: float
-            prev_vel: np.ndarray, shape: (3,)
-            current_pose: np.ndarray, shape: (3, 4)
-            current_timestamp: float
-
-        Returns:
-            can_bus: np.ndarray, shape: (18,)
-                - 0-3 translation in global frame (to ego-frame) (z is always zero)
-                - 3-7 rotation in global frame (to ego-frame) (4:6 is always zero)
-                - 7-10 acceleration in ego-frame (we have an positive g in z)
-                - 10-13 rotation rate in ego-frame
-                - 13-16 velocity in ego-frame (14, 15 are zeros)
-                - 16 patch angle in degrees
-                - 17 patch angle in radians
-        """
-        delta_t = current_timestamp - prev_timestamp
-        assert delta_t > 0, "delta_t should be positive"
-
-        can_bus = np.zeros(18)
-        # translation
-        can_bus[:3] = current_pose[:3, 3].copy()
-        # rotation
-        rotation = Quaternion(matrix=current_pose[:3, :3].copy())
-        can_bus[3:7] = rotation
-
-        # rotation rate, we approximate this as the angle difference around z axis divided by delta_t
-        delta_yaw = quaternion_yaw(rotation.copy()) - quaternion_yaw(
-            Quaternion(matrix=prev_pose[:3, :3].copy())
-        )
-        yaw_rate = delta_yaw / delta_t
-        can_bus[10] = yaw_rate
-
-        # velocity
-        delta_pos = current_pose[:3, 3].copy() - prev_pose[:3, 3].copy()
-
-        # note that we set the velocity to be zero in y and z axis.
-        vel = np.sqrt((delta_pos.copy() ** 2).sum()) / delta_t
-        can_bus[13] = vel
-
-        # acceleration
-        acc = (vel - prev_vel) / delta_t
-        can_bus[7] = acc
-        # set the gravity to be 9.8
-        can_bus[9] = 9.8
-
-        # patch angle
-        patch_angle = quaternion_yaw(rotation.copy()) / np.pi * 180
-        if patch_angle < 0:
-            patch_angle += 360
-        can_bus[-2] = patch_angle / 180 * np.pi
-        can_bus[-1] = patch_angle
-
-        return can_bus
 
 
 if __name__ == "__main__":
