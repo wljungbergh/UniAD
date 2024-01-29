@@ -50,6 +50,11 @@ class InferenceOutputs(BaseModel):
     """Predicted trajectory in the world frame. A list of (x, y) points in BEV."""
 
 
+@app.get("/alive")
+async def alive() -> bool:
+    return True
+
+
 @app.post("/infer")
 async def infer(data: InferenceInputs) -> InferenceOutputs:
     uniad_input = _build_uniad_input(data)
