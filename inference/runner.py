@@ -15,8 +15,6 @@ from projects.mmdet3d_plugin.uniad.detectors.uniad_e2e import UniAD
 from nuscenes.eval.common.utils import (
     quaternion_yaw,
 )
-from tools.data_converter.uniad_nuscenes_converter import _get_can_bus_info
-
 
 NUSCENES_CAM_ORDER = [
     "CAM_FRONT",
@@ -103,7 +101,7 @@ class UniADRunner:
 
     def reset(self):
         # making a new scene token for each new scene. these are used in the model.
-        self.scene_token = uuid.uuid4()
+        self.scene_token = str(uuid.uuid4())
 
     def _preproc_canbus(self, input: UniADInferenceInput):
         """Preprocesses the raw canbus signals from nuscenes."""
@@ -221,7 +219,7 @@ if __name__ == "__main__":
     device = "cuda" if torch.cuda.is_available() else "cpu"
     runner = UniADRunner(
         config_path="/UniAD/projects/configs/stage2_e2e/inference_e2e.py",
-        checkpoint_path=None,
+        checkpoint_path="/UniAD/ckpts/uniad_base_e2e.pth",
         device=torch.device(device),
     )
 
@@ -234,7 +232,7 @@ if __name__ == "__main__":
     # load the first surround-cam in nusc mini
     nusc = NuScenes(version="v1.0-mini", dataroot="./data/nuscenes")
     nusc_can = NuScenesCanBus(dataroot="./data/nuscenes")
-    scene_name = "scene-0061"
+    scene_name = "scene-0103"
 
     scene = [s for s in nusc.scene if s["name"] == scene_name][0]
     # get the first sample in the scene
@@ -262,14 +260,44 @@ if __name__ == "__main__":
 
     # get cameras
     camera_tokens = [sample["data"][camera_type] for camera_type in camera_types]
-    cams = [nusc.get_sample_data(cam_token) for cam_token in camera_tokens]
-    image_filepaths = [cam[0] for cam in cams]
-    cam_instrinsics = [np.array(cam[2]) for cam in cams]
+    # sample data for each camera
+    camera_sample_data = [nusc.get("sample_data", token) for token in camera_tokens]
+    # get the camera calibrations
+    camera_calibrations = [
+        nusc.get("calibrated_sensor", cam["calibrated_sensor_token"])
+        for cam in camera_sample_data
+    ]
+    # get the image filepaths
+    image_filepaths = [
+        nusc.get_sample_data(cam_token)[0] for cam_token in camera_tokens
+    ]
+    # get the camera instrinsics
+    cam_instrinsics = [
+        np.array(cam_calib["camera_intrinsic"]) for cam_calib in camera_calibrations
+    ]
+    # compute the camera2img and camera2ego transformations
     camera2img = []
+    cam2global = []
     for i in range(len(camera_types)):
+        # camera 2 image
         c2i = np.eye(4)
         c2i[:3, :3] = cam_instrinsics[i]
         camera2img.append(c2i)
+        # camera 2 ego
+        c2e = np.eye(4)
+        c2e[:3, 3] = np.array(camera_calibrations[i]["translation"])
+        c2e[:3, :3] = Quaternion(
+            array=camera_calibrations[i]["rotation"]
+        ).rotation_matrix
+        # ego 2 global (for camera time)
+        cam_e2g = nusc.get("ego_pose", camera_sample_data[i]["ego_pose_token"])
+        cam_e2g_t = np.array(cam_e2g["translation"])
+        cam_e2g_r = Quaternion(array=cam_e2g["rotation"])
+        e2g = np.eye(4)
+        e2g[:3, 3] = cam_e2g_t
+        e2g[:3, :3] = cam_e2g_r.rotation_matrix
+        # cam 2 global
+        cam2global.append(e2g @ c2e)
 
     # load the images in rgb hwc format
     images = []
@@ -279,18 +307,39 @@ if __name__ == "__main__":
         images.append(img)
     images = np.array(images)
 
+    # get the lidar calibration
     lidar_sample_data = nusc.get("sample_data", sample["data"]["LIDAR_TOP"])
-    ego_pose = nusc.get("ego_pose", lidar_sample_data["ego_pose_token"])
+    lidar_calibration = nusc.get(
+        "calibrated_sensor", lidar_sample_data["calibrated_sensor_token"]
+    )
+    lidar_translation = np.array(lidar_calibration["translation"])
+    lidar_rotation_quat = Quaternion(array=lidar_calibration["rotation"])
+    lidar2ego = np.eye(4)
+    lidar2ego[:3, 3] = lidar_translation
+    lidar2ego[:3, :3] = lidar_rotation_quat.rotation_matrix
 
-    lidar2camera = [np.eye(4) for _ in range(len(camera2img))]  # fix this
-
-    lidar2img = [np.eye(4) for _ in range(len(camera2img))]  # fix this
-
-    lidar2ego = np.eye(4)  # fix this
-    lidar2global = lidar2ego @ ego2global
+    lidar2global = ego2global @ lidar2ego
+    global2lidar = np.linalg.inv(lidar2global)
+    # the lidar2img should take into consideration that the the timestamps are not the same
+    # because of this we go img -> cam -> ego -> global -> ego' -> lidar
+    cam2lidar = [global2lidar.copy() @ c2g for c2g in cam2global]
+    lidar2cam = [np.linalg.inv(c2l) for c2l in cam2lidar]
+    lidar2img = [c2i @ l2c for c2i, l2c in zip(camera2img, lidar2cam)]
 
     # get the canbus signals
-    canbus_signals = _get_can_bus_info(nusc, nusc_can, sample)[:16]
+    pose_messages = nusc_can.get_messages(scene_name, "pose")
+    can_times = [pose["utime"] for pose in pose_messages]
+    assert np.all(np.diff(can_times) > 0), "canbus times not sorted"
+    # find the pose that is less than the current timestamp and closest to it
+    pose_idx = np.searchsorted(can_times, timestamp)
+    # get the canbus signals in the correct order
+    canbus_singal_order = ["pos", "orientation", "accel", "rotation_rate", "vel"]
+    canbus_signals = np.concatenate(
+        [
+            np.array(pose_messages[pose_idx][signal_type])
+            for signal_type in canbus_singal_order
+        ]
+    )
 
     inference_input = UniADInferenceInput(
         imgs=images.transpose(0, 3, 1, 2),  # nchw
@@ -298,7 +347,7 @@ if __name__ == "__main__":
         lidar2img=lidar2img,
         timestamp=timestamp,
         can_bus_signals=canbus_signals,
-        command=2,  # straight
+        command=0,  # right
     )
 
     plan = runner.forward_inference(inference_input)
@@ -311,5 +360,5 @@ if __name__ == "__main__":
     ax.set_ylabel("y (m)")
 
     # save fig
-    fig.savefig("forward_dummy.png")
+    fig.savefig(f"{scene['token']}-test-traj.png")
     plt.close(fig)
