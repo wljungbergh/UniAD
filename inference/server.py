@@ -7,8 +7,7 @@ import torch
 import uvicorn
 from fastapi import FastAPI
 from PIL import Image
-from pydantic import BaseModel
-
+from pydantic import BaseModel, Base64Bytes
 from inference.runner import NUSCENES_CAM_ORDER, UniADInferenceInput, UniADRunner
 
 
@@ -29,7 +28,7 @@ class Calibration(BaseModel):
 class InferenceInputs(BaseModel):
     """Input data for inference."""
 
-    images: Dict[str, bytes]
+    images: Dict[str, Base64Bytes]
     """Camera images in PNG format. The keys are the camera names."""
     ego2world: List[List[float]]
     """Ego pose in the world frame."""
