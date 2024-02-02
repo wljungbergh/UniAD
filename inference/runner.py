@@ -59,7 +59,7 @@ NUSCENES_CAM_ORDER = [
 @dataclass
 class UniADInferenceInput:
     imgs: np.ndarray
-    """shape: (n-cams (6), 3, h (900), w (1600)) | images without any preprocessing. should be in RGB order as uint8"""
+    """shape: (n-cams (6), h (900), w (1600) c (3)) | images without any preprocessing. should be in RGB order as uint8"""
     lidar_pose: np.ndarray
     """shape: (3, 4) | lidar pose in global frame"""
     lidar2img: np.ndarray
@@ -123,11 +123,9 @@ class UniADRunner:
     @torch.no_grad()
     def forward_inference(self, input: UniADInferenceInput) -> UniADInferenceOutput:
         """Run inference without all the preprocessed dataset stuff."""
-        # input to preproc shoudl be dict(img=imgs) where imgs: n x h x w x c in bgr format
         # permute rgb -> bgr
-        imgs = input.imgs[:, ::-1, :, :]
-        # flip nchw to nhwc
-        imgs = np.moveaxis(imgs, 1, -1)
+        imgs = input.imgs[:, :, :, ::-1]
+        # input to preproc shoudl be dict(img=imgs) where imgs: n x h x w x c in bgr format
         preproc_input = dict(img=imgs)
         # run it through the inference pipeline (which is same as eval pipeline except not loading annotations)
         preproc_output = self.preproc_pipeline(preproc_input)
@@ -342,7 +340,7 @@ if __name__ == "__main__":
     )
 
     inference_input = UniADInferenceInput(
-        imgs=images.transpose(0, 3, 1, 2),  # nchw
+        imgs=images
         lidar_pose=lidar2global,
         lidar2img=lidar2img,
         timestamp=timestamp,
