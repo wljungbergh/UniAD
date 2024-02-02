@@ -368,5 +368,6 @@ if __name__ == "__main__":
         # save fig
         fig.savefig(f"{scene_name}_{str(i).zfill(3)}_{sample['timestamp']}.png")
         plt.close(fig)
-
+        if sample["next"] == "":
+            break
         sample = nusc.get("sample", sample["next"])
