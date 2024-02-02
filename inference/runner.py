@@ -140,10 +140,10 @@ class UniADRunner:
         # move other input to the device as well
         l2g_t = (
             torch.from_numpy(input.lidar_pose[:3, 3]).to(self.device).unsqueeze(0)
-        )  # should be 1x3
+        ).float()  # should be 1x3
         l2g_r_mat = (
             torch.from_numpy(input.lidar_pose[:3, :3]).to(self.device).unsqueeze(0)
-        )  # should be 1x3x3
+        ).float()  # should be 1x3x3
         timestamp = (
             torch.from_numpy(np.array([input.timestamp])).to(self.device).unsqueeze(0)
         )
@@ -213,28 +213,7 @@ class UniADRunner:
         )
 
 
-if __name__ == "__main__":
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    runner = UniADRunner(
-        config_path="/UniAD/projects/configs/stage2_e2e/inference_e2e.py",
-        checkpoint_path="/UniAD/ckpts/uniad_base_e2e.pth",
-        device=torch.device(device),
-    )
-
-    # only load this for testing
-    from nuscenes.nuscenes import NuScenes
-    from nuscenes.can_bus.can_bus_api import NuScenesCanBus
-    import matplotlib.pyplot as plt
-    import cv2
-
-    # load the first surround-cam in nusc mini
-    nusc = NuScenes(version="v1.0-mini", dataroot="./data/nuscenes")
-    nusc_can = NuScenesCanBus(dataroot="./data/nuscenes")
-    scene_name = "scene-0103"
-
-    scene = [s for s in nusc.scene if s["name"] == scene_name][0]
-    # get the first sample in the scene
-    sample = nusc.get("sample", scene["first_sample_token"])
+def _get_sample_input(nusc, nusc_can, scene_name, sample) -> UniADInferenceInput:
     timestamp = sample["timestamp"]
     # get the cameras for this sample
     camera_types = [
@@ -339,8 +318,8 @@ if __name__ == "__main__":
         ]
     )
 
-    inference_input = UniADInferenceInput(
-        imgs=images
+    return UniADInferenceInput(
+        imgs=images,
         lidar_pose=lidar2global,
         lidar2img=lidar2img,
         timestamp=timestamp,
@@ -348,15 +327,46 @@ if __name__ == "__main__":
         command=0,  # right
     )
 
-    plan = runner.forward_inference(inference_input)
-    # plot in bev
-    fig, ax = plt.subplots(1, 1)
-    ax.plot(plan.trajectory[:, 0], plan.trajectory[:, 1], "r-*")
 
-    ax.set_aspect("equal")
-    ax.set_xlabel("x (m)")
-    ax.set_ylabel("y (m)")
+if __name__ == "__main__":
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    runner = UniADRunner(
+        config_path="/UniAD/projects/configs/stage2_e2e/inference_e2e.py",
+        checkpoint_path="/UniAD/ckpts/uniad_base_e2e.pth",
+        device=torch.device(device),
+    )
 
-    # save fig
-    fig.savefig(f"{scene['token']}-test-traj.png")
-    plt.close(fig)
+    # only load this for testing
+    from nuscenes.nuscenes import NuScenes
+    from nuscenes.can_bus.can_bus_api import NuScenesCanBus
+    import matplotlib.pyplot as plt
+    import cv2
+
+    # load the first surround-cam in nusc mini
+    nusc = NuScenes(version="v1.0-mini", dataroot="./data/nuscenes")
+    nusc_can = NuScenesCanBus(dataroot="./data/nuscenes")
+    scene_name = "scene-0103"
+    scene = [s for s in nusc.scene if s["name"] == scene_name][0]
+    # get the first sample in the scene
+    sample = nusc.get("sample", scene["first_sample_token"])
+
+    for i in range(60):
+        inference_input = _get_sample_input(nusc, nusc_can, scene_name, sample)
+        if i > 4:
+            inference_input.command = 2  # straight
+        plan = runner.forward_inference(inference_input)
+        # plot in bev
+        fig, ax = plt.subplots(1, 2)
+        ax[0].imshow(inference_input.imgs[0])
+        ax[0].axis("off")
+
+        ax[1].plot(plan.trajectory[:, 0], plan.trajectory[:, 1], "r-*")
+        ax[1].set_aspect("equal")
+        ax[1].set_xlabel("x (m)")
+        ax[1].set_ylabel("y (m)")
+
+        # save fig
+        fig.savefig(f"{scene_name}_{str(i).zfill(3)}_{sample['timestamp']}.png")
+        plt.close(fig)
+
+        sample = nusc.get("sample", sample["next"])
