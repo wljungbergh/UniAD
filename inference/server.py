@@ -63,11 +63,6 @@ async def infer(data: InferenceInputs) -> InferenceOutputs:
     )
 
 
-@app.get("/alive")
-async def alive() -> bool:
-    return True
-
-
 def _build_uniad_input(data: InferenceInputs) -> UniADInferenceInput:
     imgs = _pngs_to_numpy([data.images[c] for c in NUSCENES_CAM_ORDER])
     ego2world = np.array(data.ego2world)
