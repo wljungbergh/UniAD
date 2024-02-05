@@ -184,19 +184,25 @@ class UniADRunner:
         # get the occ result
         occ_no_query = outs_motion["track_query"].shape[1] == 0
         if occ_no_query:
-            pass
-        # more stuff here
-
-        ins_query = self.model.occ_head.merge_queries(
-            outs_motion, self.model.occ_head.detach_query_pos
-        )
-        _, pred_ins_logits = self.model.occ_head.forward(bev_embed, ins_query=ins_query)
-        pred_ins_logits = pred_ins_logits[:, :, : 1 + self.model.occ_head.n_future]
-        pred_ins_sigmoid = pred_ins_logits.sigmoid()
-        pred_seg_scores = pred_ins_sigmoid.max(1)[0]
-        occ_mask = (
-            (pred_seg_scores > self.model.occ_head.test_seg_thresh).long().unsqueeze(2)
-        )
+            occ_mask = torch.zeros(
+                (1, 1 + self.model.occ_head.n_future, 1, *self.model.occ_head.bev_size),
+                device=self.device,
+            ).long()
+        else:
+            ins_query = self.model.occ_head.merge_queries(
+                outs_motion, self.model.occ_head.detach_query_pos
+            )
+            _, pred_ins_logits = self.model.occ_head.forward(
+                bev_embed, ins_query=ins_query
+            )
+            pred_ins_logits = pred_ins_logits[:, :, : 1 + self.model.occ_head.n_future]
+            pred_ins_sigmoid = pred_ins_logits.sigmoid()
+            pred_seg_scores = pred_ins_sigmoid.max(1)[0]
+            occ_mask = (
+                (pred_seg_scores > self.model.occ_head.test_seg_thresh)
+                .long()
+                .unsqueeze(2)
+            )
 
         # get the planning output
         outs_planning = self.model.planning_head.forward(
