@@ -63,6 +63,12 @@ async def infer(data: InferenceInputs) -> InferenceOutputs:
     )
 
 
+@app.post("/reset")
+async def reset_runner() -> bool:
+    uniad_runner.reset()
+    return True
+
+
 @app.get("/alive")
 async def alive() -> bool:
     return True
