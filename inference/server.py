@@ -51,6 +51,9 @@ class InferenceAuxOutputs(BaseModel):
     object_classes: Optional[List[str]] = None  # (N, )
     object_scores: Optional[List[float]] = None  # (N, )
     segmentation: Optional[List[List[float]]] = None
+    seg_grid_centers: Optional[List[List[List[float]]]] = (
+        None  # bev_h (200), bev_w (200), 2 (x & y)
+    )
 
 
 class InferenceOutputs(BaseModel):

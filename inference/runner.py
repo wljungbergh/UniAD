@@ -78,6 +78,9 @@ class UniADAuxOutputs:
     object_classes: Optional[List[str]] = None  # (N, )
     object_scores: Optional[List[float]] = None  # (N, )
     segmentation: Optional[List[List[float]]] = None
+    seg_grid_centers: Optional[List[List[List[float]]]] = (
+        None  # bev_h (200), bev_w (200), 2 (x & y)
+    )
 
     def to_json(self) -> dict:
         return dict(
@@ -85,6 +88,7 @@ class UniADAuxOutputs:
             object_classes=self.object_classes,
             object_scores=self.object_scores,
             segmentation=self.segmentation,
+            seg_grid_centers=self.seg_grid_centers,
         )
 
 
@@ -231,6 +235,13 @@ class UniADRunner:
             command=torch.tensor(input.command).to(self.device).unsqueeze(0),
         )
 
+        # extract the grid centers from the occupancy prediction
+        tmpx = self.model.occ_head.bev_sampler.map_x
+        tmpy = self.model.occ_head.bev_sampler.map_y
+        tmp_m, tmp_n = torch.meshgrid(tmpx, tmpy)  # indexing 'ij'
+        tmp_m, tmp_n = tmp_m.T, tmp_n.T  # change it to the 'xy' mode results
+        grid_centers = torch.stack([tmp_m, tmp_n], dim=2)
+
         return UniADInferenceOutput(
             trajectory=outs_planning["sdc_traj"][0].cpu().numpy(),
             aux_outputs=UniADAuxOutputs(
@@ -239,7 +250,8 @@ class UniADRunner:
                 object_classes=[
                     NuScenesDataset.CLASSES[i] for i in outs_track[0]["labels_3d"]
                 ],
-                segmentation=None,
+                segmentation=pred_seg_scores[0, 0].tolist(),  # bev_h, bev_w
+                seg_grid_centers=grid_centers.tolist(),  # bev_h, bev_w, 2 [x, y]
             ),
         )
 
