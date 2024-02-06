@@ -1,8 +1,7 @@
 from dataclasses import dataclass
-from typing import Dict, Optional
+from typing import List, Optional
 import uuid
 from mmdet3d.datasets.pipelines import Compose
-from mmdet.datasets.builder import PIPELINES
 from mmdet3d.models import build_model
 from mmdet3d.core.bbox import LiDARInstance3DBoxes
 from mmcv.runner import load_checkpoint
@@ -11,6 +10,7 @@ import numpy as np
 from pyquaternion import Quaternion
 import torch
 
+from mmdet3d.datasets import NuScenesDataset
 from projects.mmdet3d_plugin.uniad.detectors.uniad_e2e import UniAD
 from nuscenes.eval.common.utils import (
     quaternion_yaw,
@@ -73,10 +73,26 @@ class UniADInferenceInput:
 
 
 @dataclass
+class UniADAuxOutputs:
+    objects_in_bev: Optional[List[List[float]]] = None  # N x [x, y, width, height, yaw]
+    object_classes: Optional[List[str]] = None  # (N, )
+    object_scores: Optional[List[float]] = None  # (N, )
+    segmentation: Optional[List[List[float]]] = None
+
+    def to_json(self) -> dict:
+        return dict(
+            objects_in_bev=self.objects_in_bev,
+            object_classes=self.object_classes,
+            object_scores=self.object_scores,
+            segmentation=self.segmentation,
+        )
+
+
+@dataclass
 class UniADInferenceOutput:
     trajectory: np.ndarray
     """shape: (n-future (6), 2) | predicted trajectory in the ego-frame @ 2Hz"""
-    aux_outputs: Optional[Dict] = None
+    aux_outputs: Optional[UniADAuxOutputs] = None
     """aux outputs such as objects, tracks, segmentation and motion forecast"""
 
 
@@ -215,7 +231,15 @@ class UniADRunner:
         )
 
         return UniADInferenceOutput(
-            trajectory=outs_planning["sdc_traj"][0].cpu().numpy()
+            trajectory=outs_planning["sdc_traj"][0].cpu().numpy(),
+            aux_outputs=UniADAuxOutputs(
+                objects_in_bev=outs_track[0]["boxes_3d"].bev.tolist(),
+                object_scores=outs_track[0]["scores_3d"].tolist(),
+                object_classes=[
+                    NuScenesDataset.CLASSES[i] for i in outs_track[0]["labels_3d"]
+                ],
+                segmentation=None,
+            ),
         )
 
 

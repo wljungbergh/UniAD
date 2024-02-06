@@ -1,6 +1,6 @@
 import argparse
 import io
-from typing import Dict, List, Literal
+from typing import Dict, List, Literal, Optional
 
 import numpy as np
 import torch
@@ -8,7 +8,11 @@ import uvicorn
 from fastapi import FastAPI
 from PIL import Image
 from pydantic import BaseModel, Base64Bytes
-from inference.runner import NUSCENES_CAM_ORDER, UniADInferenceInput, UniADRunner
+from inference.runner import (
+    NUSCENES_CAM_ORDER,
+    UniADInferenceInput,
+    UniADRunner,
+)
 
 
 app = FastAPI()
@@ -42,11 +46,19 @@ class InferenceInputs(BaseModel):
     """Calibration data.""" ""
 
 
+class InferenceAuxOutputs(BaseModel):
+    objects_in_bev: Optional[List[List[float]]] = None  # N x [x, y, width, height, yaw]
+    object_classes: Optional[List[str]] = None  # (N, )
+    object_scores: Optional[List[float]] = None  # (N, )
+    segmentation: Optional[List[List[float]]] = None
+
+
 class InferenceOutputs(BaseModel):
     """Output / result from running the model."""
 
     trajectory: List[List[float]]
-    """Predicted trajectory in the world frame. A list of (x, y) points in BEV."""
+    """Predicted trajectory in the ego frame. A list of (x, y) points in BEV."""
+    aux_outputs: Optional[InferenceAuxOutputs] = None
 
 
 @app.get("/alive")
@@ -60,6 +72,11 @@ async def infer(data: InferenceInputs) -> InferenceOutputs:
     uniad_output = uniad_runner.forward_inference(uniad_input)
     return InferenceOutputs(
         trajectory=uniad_output.trajectory.tolist(),
+        aux_outputs=(
+            InferenceAuxOutputs(**uniad_output.aux_outputs.to_json())
+            if uniad_output.aux_outputs is not None
+            else None
+        ),
     )
 
 
