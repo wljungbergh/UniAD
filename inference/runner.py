@@ -108,6 +108,7 @@ class UniADRunner:
         self.model.eval()
         # load the checkpoint
         if checkpoint_path is not None:
+            print("WARNING: Not loading any checkpoint")
             _ = load_checkpoint(self.model, checkpoint_path, map_location="cpu")
         # do more stuff here maybe?
         self.model = self.model.to(device)
