@@ -112,8 +112,9 @@ class UniADRunner:
         self.model.eval()
         # load the checkpoint
         if checkpoint_path is not None:
-            print("WARNING: Not loading any checkpoint")
             _ = load_checkpoint(self.model, checkpoint_path, map_location="cpu")
+        else:
+            print("WARNING: Not loading any checkpoint")
         # do more stuff here maybe?
         self.model = self.model.to(device)
         self.device = device
@@ -209,6 +210,9 @@ class UniADRunner:
                 (1, 1 + self.model.occ_head.n_future, 1, *self.model.occ_head.bev_size),
                 device=self.device,
             ).long()
+            pred_seg_scores = torch.zeros(
+                (1, 1, *self.model.occ_head.bev_size), device=self.device
+            )
         else:
             ins_query = self.model.occ_head.merge_queries(
                 outs_motion, self.model.occ_head.detach_query_pos
