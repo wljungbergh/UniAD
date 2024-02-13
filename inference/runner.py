@@ -112,9 +112,11 @@ class UniADRunner:
         self.model.eval()
         # load the checkpoint
         if checkpoint_path is not None:
-            _ = load_checkpoint(self.model, checkpoint_path, map_location="cpu")
+            ckpt = load_checkpoint(self.model, checkpoint_path, map_location="cpu")
+            self.classes = ckpt["meta"]["class_names"]
         else:
-            print("WARNING: Not loading any checkpoint")
+            raise ValueError("checkpoint_path is None")
+
         # do more stuff here maybe?
         self.model = self.model.to(device)
         self.device = device
@@ -251,9 +253,7 @@ class UniADRunner:
             aux_outputs=UniADAuxOutputs(
                 objects_in_bev=outs_track[0]["boxes_3d"].bev.tolist(),
                 object_scores=outs_track[0]["scores_3d"].tolist(),
-                object_classes=[
-                    NuScenesDataset.CLASSES[i] for i in outs_track[0]["labels_3d"]
-                ],
+                object_classes=[self.classes[i] for i in outs_track[0]["labels_3d"]],
                 segmentation=pred_seg_scores[0, 0].tolist(),  # bev_h, bev_w
                 seg_grid_centers=grid_centers.tolist(),  # bev_h, bev_w, 2 [x, y]
             ),
