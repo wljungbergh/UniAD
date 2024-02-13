@@ -65,4 +65,5 @@ RUN pip install torchmetrics==0.8.2
 # Link python to python3
 RUN ln /usr/bin/python3 /usr/bin/python
 
+RUN pip install uvicorn fastapi
 
