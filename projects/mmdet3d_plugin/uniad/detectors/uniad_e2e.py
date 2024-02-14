@@ -81,8 +81,8 @@ class UniAD(UniADTrack):
         if return_loss:
             return self.forward_train(**kwargs)
         else:
-            return self.forward_test(**kwargs)
-            # return self.forward_inference(**kwargs)
+            res_test = self.forward_test(**kwargs)
+            res_inf = self.forward_inference(**kwargs)
 
     # Add the subtask loss to the whole model loss
     @auto_fp16(apply_to=("img", "points"))
@@ -424,12 +424,6 @@ class UniAD(UniADTrack):
         img = img[0]
         img_metas = img_metas[0]
         timestamp = timestamp[0] if timestamp is not None else None
-        # temp ------
-        img_metas[0] = {
-            k: v
-            for k, v in img_metas[0].items()
-            if k in ("scene_token", "can_bus", "lidar2img", "img_shape", "box_type_3d")
-        }
 
         outs_track = self.simple_test_track(img, l2g_t, l2g_r_mat, img_metas, timestamp)
         outs_track[0] = self.upsample_bev_if_tiny(outs_track[0])
@@ -449,17 +443,28 @@ class UniAD(UniADTrack):
         # get the occ result
         occ_no_query = outs_motion["track_query"].shape[1] == 0
         if occ_no_query:
-            pass
-        # more stuff here
-
-        ins_query = self.occ_head.merge_queries(
-            outs_motion, self.occ_head.detach_query_pos
-        )
-        _, pred_ins_logits = self.occ_head.forward(bev_embed, ins_query=ins_query)
-        pred_ins_logits = pred_ins_logits[:, :, : 1 + self.occ_head.n_future]
-        pred_ins_sigmoid = pred_ins_logits.sigmoid()
-        pred_seg_scores = pred_ins_sigmoid.max(1)[0]
-        occ_mask = (pred_seg_scores > self.occ_head.test_seg_thresh).long().unsqueeze(2)
+            occ_mask = torch.zeros(
+                (1, 1 + self.model.occ_head.n_future, 1, *self.model.occ_head.bev_size),
+                device=self.device,
+            ).long()
+            pred_seg_scores = torch.zeros(
+                (1, 1, *self.model.occ_head.bev_size), device=self.device
+            )
+        else:
+            ins_query = self.model.occ_head.merge_queries(
+                outs_motion, self.model.occ_head.detach_query_pos
+            )
+            _, pred_ins_logits = self.model.occ_head.forward(
+                bev_embed, ins_query=ins_query
+            )
+            pred_ins_logits = pred_ins_logits[:, :, : 1 + self.model.occ_head.n_future]
+            pred_ins_sigmoid = pred_ins_logits.sigmoid()
+            pred_seg_scores = pred_ins_sigmoid.max(1)[0]
+            occ_mask = (
+                (pred_seg_scores > self.model.occ_head.test_seg_thresh)
+                .long()
+                .unsqueeze(2)
+            )
 
         # get the planning output
         outs_planning = self.planning_head.forward(
