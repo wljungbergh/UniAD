@@ -1,3 +1,4 @@
+import copy
 from dataclasses import dataclass
 from typing import List, Optional
 import uuid
@@ -126,6 +127,12 @@ class UniADRunner:
     def reset(self):
         # making a new scene token for each new scene. these are used in the model.
         self.scene_token = str(uuid.uuid4())
+        self.prev_frame_info = {
+            "prev_bev": None,
+            "scene_token": None,
+            "prev_pos": 0,
+            "prev_angle": 0,
+        }
 
     def _preproc_canbus(self, input: UniADInferenceInput):
         """Preprocesses the raw canbus signals from nuscenes."""
@@ -187,6 +194,20 @@ class UniADRunner:
                 "box_type_3d": LiDARInstance3DBoxes,
             }
         ]
+
+        tmp_pos = copy.deepcopy(img_metas[0]["can_bus"][:3])
+        tmp_angle = copy.deepcopy(img_metas[0]["can_bus"][-1])
+        # first frame
+        if self.prev_frame_info["scene_token"] is None:
+            img_metas[0]["can_bus"][:3] = 0
+            img_metas[0]["can_bus"][-1] = 0
+        # following frames
+        else:
+            img_metas[0]["can_bus"][:3] -= self.prev_frame_info["prev_pos"]
+            img_metas[0]["can_bus"][-1] -= self.prev_frame_info["prev_angle"]
+
+        self.prev_frame_info["prev_pos"] = tmp_pos
+        self.prev_frame_info["prev_angle"] = tmp_angle
 
         outs_track = self.model.simple_test_track(
             imgs, l2g_t, l2g_r_mat, img_metas, timestamp
