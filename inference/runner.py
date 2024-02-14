@@ -113,7 +113,7 @@ class UniADRunner:
         # load the checkpoint
         if checkpoint_path is not None:
             ckpt = load_checkpoint(self.model, checkpoint_path, map_location="cpu")
-            self.classes = ckpt["meta"]["class_names"]
+            self.classes = ckpt["meta"]["CLASSES"]
         else:
             raise ValueError("checkpoint_path is None")
 
