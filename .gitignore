@@ -153,3 +153,6 @@ debug/
 *projs/
 
 core.*
+
+output/
+outputs/
