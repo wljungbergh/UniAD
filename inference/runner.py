@@ -78,16 +78,30 @@ class UniADAuxOutputs:
     objects_in_bev: Optional[List[List[float]]] = None  # N x [x, y, width, height, yaw]
     object_classes: Optional[List[str]] = None  # (N, )
     object_scores: Optional[List[float]] = None  # (N, )
+    object_ids: Optional[List[int]] = None  # (N, )
+    objects_in_bev_det: Optional[
+        List[List[float]]
+    ] = None  # N x [x, y, width, height, yaw]
+    object_classes_det: Optional[List[str]] = None
+    object_scores_det: Optional[List[float]] = None
+    future_trajs: Optional[
+        List[List[List[List[float]]]]
+    ] = None  # (N, 6 modes, 12 timesteps, 2 x&yw)
     segmentation: Optional[List[List[float]]] = None
-    seg_grid_centers: Optional[List[List[List[float]]]] = (
-        None  # bev_h (200), bev_w (200), 2 (x & y)
-    )
+    seg_grid_centers: Optional[
+        List[List[List[float]]]
+    ] = None  # bev_h (200), bev_w (200), 2 (x & y)
 
     def to_json(self) -> dict:
         return dict(
             objects_in_bev=self.objects_in_bev,
             object_classes=self.object_classes,
             object_scores=self.object_scores,
+            object_ids=self.object_ids,
+            objects_in_bev_det=self.objects_in_bev_det,
+            object_classes_det=self.object_classes_det,
+            object_scores_det=self.object_scores_det,
+            future_trajs=self.future_trajs,
             segmentation=self.segmentation,
             seg_grid_centers=self.seg_grid_centers,
         )
@@ -221,11 +235,12 @@ class UniADRunner:
         outs_seg = self.model.seg_head.forward(bev_embed)
 
         # get the motion
-        _, outs_motion = self.model.motion_head.forward_test(
+        traj_output, outs_motion = self.model.motion_head.forward_test(
             bev_embed, outs_track[0], outs_seg
         )
+        #  N x 6 modes x 12 timesteps x 5 states (x, y, sigma_x, sigma_y, rho)
+        future_trajs = traj_output[0]["traj"][:-1]  # last one is ego
         outs_motion["bev_pos"] = outs_track[0]["bev_pos"]
-
         # get the occ result
         occ_no_query = outs_motion["track_query"].shape[1] == 0
         if occ_no_query:
@@ -275,6 +290,13 @@ class UniADRunner:
                 objects_in_bev=outs_track[0]["boxes_3d"].bev.tolist(),
                 object_scores=outs_track[0]["scores_3d"].tolist(),
                 object_classes=[self.classes[i] for i in outs_track[0]["labels_3d"]],
+                object_ids=outs_track[0]["track_ids"].tolist(),
+                objects_in_bev_det=outs_track[0]["boxes_3d_det"].bev.tolist(),
+                object_scores_det=outs_track[0]["scores_3d_det"].tolist(),
+                object_classes_det=[
+                    self.classes[i] for i in outs_track[0]["labels_3d_det"]
+                ],
+                future_trajs=future_trajs.tolist(),  # N x 6 modes x 12 timesteps x 5 states
                 segmentation=pred_seg_scores[0, 0].tolist(),  # bev_h, bev_w
                 seg_grid_centers=grid_centers.tolist(),  # bev_h, bev_w, 2 [x, y]
             ),

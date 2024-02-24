@@ -50,10 +50,17 @@ class InferenceAuxOutputs(BaseModel):
     objects_in_bev: Optional[List[List[float]]] = None  # N x [x, y, width, height, yaw]
     object_classes: Optional[List[str]] = None  # (N, )
     object_scores: Optional[List[float]] = None  # (N, )
+    object_ids: Optional[List[int]] = None  # (N, )
+    objects_in_bev_det: Optional[
+        List[List[float]]
+    ] = None  # N x [x, y, width, height, yaw]
+    object_classes_det: Optional[List[str]] = None  # (N, )
+    object_scores_det: Optional[List[float]] = None  # (N, )
+    future_trajs: Optional[List[List[List[List[float]]]]] = None  # N x M x T x [x, y]
     segmentation: Optional[List[List[float]]] = None
-    seg_grid_centers: Optional[List[List[List[float]]]] = (
-        None  # bev_h (200), bev_w (200), 2 (x & y)
-    )
+    seg_grid_centers: Optional[
+        List[List[List[float]]]
+    ] = None  # bev_h (200), bev_w (200), 2 (x & y)
 
 
 class InferenceOutputs(BaseModel):
