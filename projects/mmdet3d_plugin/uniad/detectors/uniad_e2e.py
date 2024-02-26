@@ -81,8 +81,7 @@ class UniAD(UniADTrack):
         if return_loss:
             return self.forward_train(**kwargs)
         else:
-            res_test = self.forward_test(**kwargs)
-            res_inf = self.forward_inference(**kwargs)
+            return self.forward_test(**kwargs)
 
     # Add the subtask loss to the whole model loss
     @auto_fp16(apply_to=("img", "points"))
@@ -287,6 +286,7 @@ class UniAD(UniADTrack):
         if img_metas[0][0]["scene_token"] != self.prev_frame_info["scene_token"]:
             # the first sample of each scene is truncated
             self.prev_frame_info["prev_bev"] = None
+            # self.prev_frame_info["scene-token"] = None
         # update idx
         self.prev_frame_info["scene_token"] = img_metas[0][0]["scene_token"]
 
@@ -307,6 +307,7 @@ class UniAD(UniADTrack):
             img_metas[0][0]["can_bus"][-1] -= self.prev_frame_info["prev_angle"]
         self.prev_frame_info["prev_pos"] = tmp_pos
         self.prev_frame_info["prev_angle"] = tmp_angle
+        # self.prev_frame_info["scene_token"] = img_metas[0][0]["scene_token"]
 
         img = img[0]
         img_metas = img_metas[0]
@@ -444,26 +445,22 @@ class UniAD(UniADTrack):
         occ_no_query = outs_motion["track_query"].shape[1] == 0
         if occ_no_query:
             occ_mask = torch.zeros(
-                (1, 1 + self.model.occ_head.n_future, 1, *self.model.occ_head.bev_size),
+                (1, 1 + self.occ_head.n_future, 1, *self.occ_head.bev_size),
                 device=self.device,
             ).long()
             pred_seg_scores = torch.zeros(
-                (1, 1, *self.model.occ_head.bev_size), device=self.device
+                (1, 1, *self.occ_head.bev_size), device=self.device
             )
         else:
-            ins_query = self.model.occ_head.merge_queries(
-                outs_motion, self.model.occ_head.detach_query_pos
+            ins_query = self.occ_head.merge_queries(
+                outs_motion, self.occ_head.detach_query_pos
             )
-            _, pred_ins_logits = self.model.occ_head.forward(
-                bev_embed, ins_query=ins_query
-            )
-            pred_ins_logits = pred_ins_logits[:, :, : 1 + self.model.occ_head.n_future]
+            _, pred_ins_logits = self.occ_head.forward(bev_embed, ins_query=ins_query)
+            pred_ins_logits = pred_ins_logits[:, :, : 1 + self.occ_head.n_future]
             pred_ins_sigmoid = pred_ins_logits.sigmoid()
             pred_seg_scores = pred_ins_sigmoid.max(1)[0]
             occ_mask = (
-                (pred_seg_scores > self.model.occ_head.test_seg_thresh)
-                .long()
-                .unsqueeze(2)
+                (pred_seg_scores > self.occ_head.test_seg_thresh).long().unsqueeze(2)
             )
 
         # get the planning output

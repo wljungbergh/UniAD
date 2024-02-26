@@ -10,8 +10,6 @@ from mmcv import Config
 import numpy as np
 from pyquaternion import Quaternion
 import torch
-
-from mmdet3d.datasets import NuScenesDataset
 from projects.mmdet3d_plugin.uniad.detectors.uniad_e2e import UniAD
 from nuscenes.eval.common.utils import (
     quaternion_yaw,
@@ -159,6 +157,8 @@ class UniADRunner:
             input.can_bus_signals, patch_angle / 180 * np.pi
         )
         input.can_bus_signals = np.append(input.can_bus_signals, patch_angle)
+        # UniAD has this, which is faulty, but we follow it for now
+        input.can_bus_signals[3:7] = -rotation
 
     def preproc(self, input: UniADInferenceInput):
         """Preprocess the input data."""
@@ -222,6 +222,7 @@ class UniADRunner:
 
         self.prev_frame_info["prev_pos"] = tmp_pos
         self.prev_frame_info["prev_angle"] = tmp_angle
+        self.prev_frame_info["scene_token"] = self.scene_token
 
         outs_track = self.model.simple_test_track(
             imgs, l2g_t, l2g_r_mat, img_metas, timestamp

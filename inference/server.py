@@ -101,6 +101,7 @@ def _build_uniad_input(data: InferenceInputs) -> UniADInferenceInput:
     ego2world = np.array(data.ego2world)
     lidar2ego = np.array(data.calibration.lidar2ego)
     lidar2world = ego2world @ lidar2ego
+    lidar2world[:3, :3] = lidar2world[:3, :3].T
     lidar2imgs = []
     for cam in NUSCENES_CAM_ORDER:
         ego2cam = np.linalg.inv(np.array(data.calibration.camera2ego[cam]))
