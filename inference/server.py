@@ -136,9 +136,14 @@ if __name__ == "__main__":
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--host", type=str, default="0.0.0.0")
     parser.add_argument("--port", type=int, default=9000)
+    # add bool flag on whether to use the checkpoint or not
+    parser.add_argument("--disable_col_optim", action="store_true")
     args = parser.parse_args()
     device = torch.device(args.device)
 
     uniad_runner = UniADRunner(args.config_path, args.checkpoint_path, device)
+
+    if args.disable_col_optim:
+        uniad_runner.model.planning_head.use_col_optim = False
 
     uvicorn.run(app, host=args.host, port=args.port)
