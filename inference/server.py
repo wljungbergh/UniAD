@@ -8,6 +8,7 @@ import uvicorn
 from fastapi import FastAPI
 from PIL import Image
 from pydantic import BaseModel, Base64Bytes
+from inference.baseline import NaiveBaseline
 from inference.runner import (
     NUSCENES_CAM_ORDER,
     UniADInferenceInput,
@@ -51,16 +52,16 @@ class InferenceAuxOutputs(BaseModel):
     object_classes: Optional[List[str]] = None  # (N, )
     object_scores: Optional[List[float]] = None  # (N, )
     object_ids: Optional[List[int]] = None  # (N, )
-    objects_in_bev_det: Optional[
-        List[List[float]]
-    ] = None  # N x [x, y, width, height, yaw]
+    objects_in_bev_det: Optional[List[List[float]]] = (
+        None  # N x [x, y, width, height, yaw]
+    )
     object_classes_det: Optional[List[str]] = None  # (N, )
     object_scores_det: Optional[List[float]] = None  # (N, )
     future_trajs: Optional[List[List[List[List[float]]]]] = None  # N x M x T x [x, y]
     segmentation: Optional[List[List[float]]] = None
-    seg_grid_centers: Optional[
-        List[List[List[float]]]
-    ] = None  # bev_h (200), bev_w (200), 2 (x & y)
+    seg_grid_centers: Optional[List[List[List[float]]]] = (
+        None  # bev_h (200), bev_w (200), 2 (x & y)
+    )
 
 
 class InferenceOutputs(BaseModel):
@@ -139,10 +140,13 @@ if __name__ == "__main__":
     parser.add_argument("--port", type=int, default=9000)
     # add bool flag on whether to use the checkpoint or not
     parser.add_argument("--disable_col_optim", action="store_true")
+    parser.add_argument("--run_baseline", action="store_true")
     args = parser.parse_args()
     device = torch.device(args.device)
 
-    uniad_runner = UniADRunner(args.config_path, args.checkpoint_path, device)
+    runner_cls = NaiveBaseline if args.run_baseline else UniADRunner
+
+    uniad_runner = runner_cls(args.config_path, args.checkpoint_path, device)
 
     if args.disable_col_optim:
         uniad_runner.model.planning_head.use_col_optim = False
