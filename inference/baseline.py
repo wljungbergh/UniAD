@@ -13,7 +13,7 @@ NUSCENES_CAM_ORDER = [
 ]
 
 CORRIDOR_WIDTH = 5  # meters
-CORRIDOR_LENGTH = 10  # meters
+CORRIDOR_LENGTH = 15  # meters
 CORRIDOR_START = 1  # meters
 
 
@@ -40,7 +40,7 @@ class NaiveBaseline(UniADRunner):
             cur_vel = 0.25  # m/s, set to low value, but not 0
 
         trajectory = np.zeros((6, 2))
-        trajectory[:, 0] = np.arange(1, 7) * cur_vel / 2
+        trajectory[:, 1] = np.arange(1, 7) * cur_vel / 2  # y-forward
 
         return UniADInferenceOutput(
             trajectory=trajectory,
