@@ -1,5 +1,4 @@
 import numpy as np
-from pyquaternion import Quaternion
 import torch
 from inference.runner import UniADInferenceInput, UniADInferenceOutput, UniADRunner
 
@@ -13,7 +12,7 @@ NUSCENES_CAM_ORDER = [
 ]
 
 CORRIDOR_WIDTH = 5  # meters
-CORRIDOR_LENGTH = 15  # meters
+CORRIDOR_LENGTH = 10  # meters
 CORRIDOR_START = 1  # meters
 
 
