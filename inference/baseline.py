@@ -37,7 +37,7 @@ class NaiveBaseline(UniADRunner):
             cur_vel = input.can_bus_signals[13]
         else:
             # break
-            cur_vel = 0.25  # m/s, set to low value, but not 0
+            cur_vel = 0.0  # m/s, set to low value, but not 0
 
         trajectory = np.zeros((6, 2))
         trajectory[:, 1] = np.arange(1, 7) * cur_vel / 2  # y-forward
