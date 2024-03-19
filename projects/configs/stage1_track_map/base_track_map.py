@@ -577,7 +577,7 @@ total_epochs = 6
 evaluation = dict(
     interval=6,
     pipeline=test_pipeline,
-    planning_metric_strategy=planning_metric_strategy,
+    planning_evaluation_strategy=planning_evaluation_strategy,
 )
 runner = dict(type="EpochBasedRunner", max_epochs=total_epochs)
 log_config = dict(

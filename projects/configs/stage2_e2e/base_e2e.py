@@ -58,7 +58,7 @@ use_col_optim = True
 # there exists multiple interpretations of the planning metric, where it differs between uniad and spt3/vad
 # uniad: computed at a particular time (e.g., L2 distance between the predicted and ground truth future trajectory at time 3.0s)
 # spt3: computed as the average up to a particular time (e.g., average L2 distance between the predicted and ground truth future trajectory up to 3.0s)
-planning_metric_strategy = "uniad"  # uniad or spt3
+planning_evaluation_strategy = "uniad"  # uniad or spt3
 
 ### Occ args ### 
 occflow_grid_conf = {
@@ -692,7 +692,7 @@ total_epochs = 20
 evaluation = dict(
     interval=4,
     pipeline=test_pipeline,
-    planning_metric_strategy=planning_metric_strategy,
+    planning_evaluation_strategy=planning_evaluation_strategy,
 )
 runner = dict(type="EpochBasedRunner", max_epochs=total_epochs)
 log_config = dict(
