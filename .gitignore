@@ -1,3 +1,6 @@
+# MacOS
+.DS_Store
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -150,3 +153,6 @@ debug/
 *projs/
 
 core.*
+
+output/
+outputs/
