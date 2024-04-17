@@ -8,7 +8,6 @@ import uvicorn
 from fastapi import FastAPI
 from PIL import Image
 from pydantic import BaseModel, Base64Bytes
-from inference.baseline import NaiveBaseline
 from inference.runner import (
     NUSCENES_CAM_ORDER,
     UniADInferenceInput,
@@ -140,13 +139,10 @@ if __name__ == "__main__":
     parser.add_argument("--port", type=int, default=9000)
     # add bool flag on whether to use the checkpoint or not
     parser.add_argument("--disable_col_optim", action="store_true")
-    parser.add_argument("--run_baseline", action="store_true")
     args = parser.parse_args()
     device = torch.device(args.device)
 
-    runner_cls = NaiveBaseline if args.run_baseline else UniADRunner
-
-    uniad_runner = runner_cls(args.config_path, args.checkpoint_path, device)
+    uniad_runner = UniADRunner(args.config_path, args.checkpoint_path, device)
 
     if args.disable_col_optim:
         uniad_runner.model.planning_head.use_col_optim = False
