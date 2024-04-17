@@ -59,8 +59,13 @@ WORKDIR /
 RUN git clone https://github.com/OpenDriveLab/UniAD.git
 WORKDIR /UniAD
 RUN pip install -r requirements.txt
+# We need this old version of torchmetrics to run UniAD...
+RUN pip install torchmetrics==0.8.2
 
 # Link python to python3
 RUN ln /usr/bin/python3 /usr/bin/python
+
+RUN pip install uvicorn fastapi
+RUN pip install numpy==1.21.2
 
 
