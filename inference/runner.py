@@ -1,6 +1,6 @@
 import copy
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List
 import uuid
 from mmdet3d.datasets.pipelines import Compose
 from mmdet3d.models import build_model
@@ -73,35 +73,30 @@ class UniADInferenceInput:
 
 @dataclass
 class UniADAuxOutputs:
-    objects_in_bev: Optional[List[List[float]]] = None  # N x [x, y, width, height, yaw]
-    object_classes: Optional[List[str]] = None  # (N, )
-    object_scores: Optional[List[float]] = None  # (N, )
-    object_ids: Optional[List[int]] = None  # (N, )
-    objects_in_bev_det: Optional[
-        List[List[float]]
-    ] = None  # N x [x, y, width, height, yaw]
-    object_classes_det: Optional[List[str]] = None
-    object_scores_det: Optional[List[float]] = None
-    future_trajs: Optional[
-        List[List[List[List[float]]]]
-    ] = None  # (N, 6 modes, 12 timesteps, 2 x&yw)
-    segmentation: Optional[List[List[float]]] = None
-    seg_grid_centers: Optional[
-        List[List[List[float]]]
-    ] = None  # bev_h (200), bev_w (200), 2 (x & y)
+    objects_in_bev: np.ndarray  # N x [x, y, width, height, yaw]
+    object_classes: List[str]  # (N, )
+    object_scores: np.ndarray  # (N, )
+    object_ids: np.ndarray  # (N, )
+    future_trajs: np.ndarray  # (N, 6 modes, 12 timesteps, 2 x&yw)
 
     def to_json(self) -> dict:
+        n_objects = len(self.object_classes)
         return dict(
-            objects_in_bev=self.objects_in_bev,
-            object_classes=self.object_classes,
-            object_scores=self.object_scores,
-            object_ids=self.object_ids,
-            objects_in_bev_det=self.objects_in_bev_det,
-            object_classes_det=self.object_classes_det,
-            object_scores_det=self.object_scores_det,
-            future_trajs=self.future_trajs,
-            segmentation=self.segmentation,
-            seg_grid_centers=self.seg_grid_centers,
+            objects_in_bev=self.objects_in_bev.tolist() if n_objects > 0 else None,
+            object_classes=self.object_classes if n_objects > 0 else None,
+            object_scores=self.object_scores.tolist() if n_objects > 0 else None,
+            object_ids=self.object_ids.tolist() if n_objects > 0 else None,
+            future_trajs=self.future_trajs.tolist() if n_objects > 0 else None,
+        )
+
+    @classmethod
+    def empty(cls) -> "UniADAuxOutputs":
+        return cls(
+            objects_in_bev=np.zeros((0, 5)),
+            object_classes=[],
+            object_scores=np.zeros((0, 1)),
+            object_ids=np.zeros((0, 1)),
+            future_trajs=np.zeros((0, 6, 12, 5)),
         )
 
 
@@ -109,7 +104,7 @@ class UniADAuxOutputs:
 class UniADInferenceOutput:
     trajectory: np.ndarray
     """shape: (n-future (6), 2) | predicted trajectory in the ego-frame @ 2Hz"""
-    aux_outputs: Optional[UniADAuxOutputs] = None
+    aux_outputs: UniADAuxOutputs
     """aux outputs such as objects, tracks, segmentation and motion forecast"""
 
 
@@ -130,7 +125,6 @@ class UniADRunner:
         else:
             raise ValueError("checkpoint_path is None")
 
-        # do more stuff here maybe?
         self.model = self.model.to(device)
         self.device = device
         self.preproc_pipeline = Compose(config.inference_pipeline)
@@ -157,13 +151,8 @@ class UniADRunner:
             input.can_bus_signals, patch_angle / 180 * np.pi
         )
         input.can_bus_signals = np.append(input.can_bus_signals, patch_angle)
-        # UniAD has this, which is faulty, but we follow it for now
+        # UniAD has this, which is faulty as it does not copy the four elements, but just the first one, but we follow it for now
         input.can_bus_signals[3:7] = -rotation
-
-    def preproc(self, input: UniADInferenceInput):
-        """Preprocess the input data."""
-        self._preproc_canbus(input)
-        # TODO: make torch version of the preproc (for images) pipeline instead of using mmcv version'
 
     @torch.no_grad()
     def forward_inference(self, input: UniADInferenceInput) -> UniADInferenceOutput:
@@ -195,7 +184,7 @@ class UniADRunner:
         # we are preproccessing the canbus signals only currently.
         # TODO: fix preproc to include the image preprocessing as well. this is currently done
         # in mmcv (i.e., numpy) and not torch.
-        self.preproc(input)
+        self._preproc_canbus(input)
 
         # we need to emulate the img_metas here in order to run the model.
         img_metas = [
@@ -249,9 +238,6 @@ class UniADRunner:
                 (1, 1 + self.model.occ_head.n_future, 1, *self.model.occ_head.bev_size),
                 device=self.device,
             ).long()
-            pred_seg_scores = torch.zeros(
-                (1, 1, *self.model.occ_head.bev_size), device=self.device
-            )
         else:
             ins_query = self.model.occ_head.merge_queries(
                 outs_motion, self.model.occ_head.detach_query_pos
@@ -278,29 +264,23 @@ class UniADRunner:
             command=torch.tensor(input.command).to(self.device).unsqueeze(0),
         )
 
-        # extract the grid centers from the occupancy prediction
-        tmpx = self.model.occ_head.bev_sampler.map_x
-        tmpy = self.model.occ_head.bev_sampler.map_y
-        tmp_m, tmp_n = torch.meshgrid(tmpx, tmpy)  # indexing 'ij'
-        tmp_m, tmp_n = tmp_m.T, tmp_n.T  # change it to the 'xy' mode results
-        grid_centers = torch.stack([tmp_m, tmp_n], dim=2)
+        n_objects = outs_track[0]["boxes_3d"].tensor.shape[0]
+
+        aux_outputs = (
+            UniADAuxOutputs(
+                objects_in_bev=outs_track[0]["boxes_3d"].bev.cpu().numpy(),
+                object_scores=outs_track[0]["scores_3d"].cpu().numpy(),
+                object_classes=[self.classes[i] for i in outs_track[0]["labels_3d"]],
+                object_ids=outs_track[0]["track_ids"].cpu().numpy(),
+                future_trajs=future_trajs.cpu().numpy(),  # N x 6 modes x 12 timesteps x 5 states
+            )
+            if n_objects > 0
+            else UniADAuxOutputs.empty()
+        )
 
         return UniADInferenceOutput(
             trajectory=outs_planning["sdc_traj"][0].cpu().numpy(),
-            aux_outputs=UniADAuxOutputs(
-                objects_in_bev=outs_track[0]["boxes_3d"].bev.tolist(),
-                object_scores=outs_track[0]["scores_3d"].tolist(),
-                object_classes=[self.classes[i] for i in outs_track[0]["labels_3d"]],
-                object_ids=outs_track[0]["track_ids"].tolist(),
-                objects_in_bev_det=outs_track[0]["boxes_3d_det"].bev.tolist(),
-                object_scores_det=outs_track[0]["scores_3d_det"].tolist(),
-                object_classes_det=[
-                    self.classes[i] for i in outs_track[0]["labels_3d_det"]
-                ],
-                future_trajs=future_trajs.tolist(),  # N x 6 modes x 12 timesteps x 5 states
-                segmentation=pred_seg_scores[0, 0].tolist(),  # bev_h, bev_w
-                seg_grid_centers=grid_centers.tolist(),  # bev_h, bev_w, 2 [x, y]
-            ),
+            aux_outputs=aux_outputs,
         )
 
 

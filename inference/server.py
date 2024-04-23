@@ -51,16 +51,8 @@ class InferenceAuxOutputs(BaseModel):
     object_classes: Optional[List[str]] = None  # (N, )
     object_scores: Optional[List[float]] = None  # (N, )
     object_ids: Optional[List[int]] = None  # (N, )
-    objects_in_bev_det: Optional[List[List[float]]] = (
-        None  # N x [x, y, width, height, yaw]
-    )
-    object_classes_det: Optional[List[str]] = None  # (N, )
-    object_scores_det: Optional[List[float]] = None  # (N, )
     future_trajs: Optional[List[List[List[List[float]]]]] = None  # N x M x T x [x, y]
     segmentation: Optional[List[List[float]]] = None
-    seg_grid_centers: Optional[List[List[List[float]]]] = (
-        None  # bev_h (200), bev_w (200), 2 (x & y)
-    )
 
 
 class InferenceOutputs(BaseModel):
@@ -68,7 +60,8 @@ class InferenceOutputs(BaseModel):
 
     trajectory: List[List[float]]
     """Predicted trajectory in the ego frame. A list of (x, y) points in BEV."""
-    aux_outputs: Optional[InferenceAuxOutputs] = None
+    aux_outputs: InferenceAuxOutputs
+    """Auxiliary outputs."""
 
 
 @app.get("/alive")
@@ -82,11 +75,7 @@ async def infer(data: InferenceInputs) -> InferenceOutputs:
     uniad_output = uniad_runner.forward_inference(uniad_input)
     return InferenceOutputs(
         trajectory=uniad_output.trajectory.tolist(),
-        aux_outputs=(
-            InferenceAuxOutputs(**uniad_output.aux_outputs.to_json())
-            if uniad_output.aux_outputs is not None
-            else None
-        ),
+        aux_outputs=(InferenceAuxOutputs(**uniad_output.aux_outputs.to_json())),
     )
 
 
@@ -101,7 +90,7 @@ def _build_uniad_input(data: InferenceInputs) -> UniADInferenceInput:
     ego2world = np.array(data.ego2world)
     lidar2ego = np.array(data.calibration.lidar2ego)
     lidar2world = ego2world @ lidar2ego
-    lidar2world[:3, :3] = lidar2world[:3, :3].T
+    lidar2world[:3, :3] = lidar2world[:3, :3].T  # this is from UniAD data-prep
     lidar2imgs = []
     for cam in NUSCENES_CAM_ORDER:
         ego2cam = np.linalg.inv(np.array(data.calibration.camera2ego[cam]))
