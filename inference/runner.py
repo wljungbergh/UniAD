@@ -77,7 +77,7 @@ class UniADAuxOutputs:
     object_classes: List[str]  # (N, )
     object_scores: np.ndarray  # (N, )
     object_ids: np.ndarray  # (N, )
-    future_trajs: np.ndarray  # (N, 6 modes, 12 timesteps, 2 x&yw)
+    future_trajs: np.ndarray  # (N, 6 modes, 12 timesteps, [x y])
 
     def to_json(self) -> dict:
         n_objects = len(self.object_classes)
@@ -96,7 +96,7 @@ class UniADAuxOutputs:
             object_classes=[],
             object_scores=np.zeros((0, 1)),
             object_ids=np.zeros((0, 1)),
-            future_trajs=np.zeros((0, 6, 12, 5)),
+            future_trajs=np.zeros((0, 6, 12, 2)),
         )
 
 
@@ -272,7 +272,9 @@ class UniADRunner:
                 object_scores=outs_track[0]["scores_3d"].cpu().numpy(),
                 object_classes=[self.classes[i] for i in outs_track[0]["labels_3d"]],
                 object_ids=outs_track[0]["track_ids"].cpu().numpy(),
-                future_trajs=future_trajs.cpu().numpy(),  # N x 6 modes x 12 timesteps x 5 states
+                future_trajs=future_trajs[..., :2]
+                .cpu()
+                .numpy(),  # N x 6 modes x 12 timesteps x 2 states (x y)
             )
             if n_objects > 0
             else UniADAuxOutputs.empty()
