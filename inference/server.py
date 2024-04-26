@@ -6,7 +6,6 @@ import numpy as np
 import torch
 import uvicorn
 from fastapi import FastAPI
-from PIL import Image
 from pydantic import BaseModel, Base64Bytes
 from inference.runner import (
     NUSCENES_CAM_ORDER,
@@ -52,7 +51,6 @@ class InferenceAuxOutputs(BaseModel):
     object_scores: Optional[List[float]] = None  # (N, )
     object_ids: Optional[List[int]] = None  # (N, )
     future_trajs: Optional[List[List[List[List[float]]]]] = None  # N x M x T x [x, y]
-    segmentation: Optional[List[List[float]]] = None
 
 
 class InferenceOutputs(BaseModel):
@@ -86,7 +84,7 @@ async def reset_runner() -> bool:
 
 
 def _build_uniad_input(data: InferenceInputs) -> UniADInferenceInput:
-    imgs = _pngs_to_numpy([data.images[c] for c in NUSCENES_CAM_ORDER])
+    imgs = _bytestr_to_numpy([data.images[c] for c in NUSCENES_CAM_ORDER])
     ego2world = np.array(data.ego2world)
     lidar2ego = np.array(data.calibration.lidar2ego)
     lidar2world = ego2world @ lidar2ego
@@ -110,12 +108,14 @@ def _build_uniad_input(data: InferenceInputs) -> UniADInferenceInput:
     )
 
 
-def _pngs_to_numpy(pngs: List[bytes]) -> np.ndarray:
+def _bytestr_to_numpy(pngs: List[bytes]) -> np.ndarray:
     """Convert a list of png bytes to a numpy array of shape (n, h, w, c)."""
     imgs = []
     for png in pngs:
-        img = Image.open(io.BytesIO(png))
-        imgs.append(np.array(img))
+        # using torch load as we use torch save on rendering node
+        img = torch.load(io.BytesIO(png)).clone()
+        imgs.append(img.numpy())
+
     return np.stack(imgs, axis=0)
 
 
