@@ -307,17 +307,17 @@ model = dict(
 )
 dataset_type = "NuScenesE2EDataset"
 data_root = "data/nuscenes/"
-info_root = "data/infos/"
+info_root = "data/nuscenes/infos/"
 file_client_args = dict(backend="disk")
-ann_file_train=info_root + f"nuscenes_infos_temporal_train.pkl"
-ann_file_val=info_root + f"nuscenes_infos_temporal_val.pkl"
-ann_file_test=info_root + f"nuscenes_infos_temporal_val.pkl"
+ann_file_train=info_root + f"nuscenes_infos_temporal_train_wazabi.pkl"
+ann_file_val=info_root + f"nuscenes_infos_temporal_val_wazabi.pkl"
+ann_file_test=info_root + f"nuscenes_infos_temporal_val_wazabi.pkl"
 
 
 train_pipeline = [
     dict(type="LoadMultiViewImageFromFilesInCeph", to_float32=True, file_client_args=file_client_args, img_root=data_root),
     dict(type="PhotoMetricDistortionMultiViewImage"),
-    dict(type="LoadCachedBEV", cache_dir="data/bev_cache", point_cloud_range=point_cloud_range),
+    dict(type="LoadCachedBEV", cache_dir="data/bev_cache", cache_format="npy"),
     dict(
         type="LoadAnnotations3D_E2E",
         with_bbox_3d=True,
@@ -383,7 +383,7 @@ test_pipeline = [
     dict(type='LoadMultiViewImageFromFilesInCeph', to_float32=True,
             file_client_args=file_client_args, img_root=data_root),
     dict(type="NormalizeMultiviewImage", **img_norm_cfg),
-    dict(type="LoadCachedBEV", cache_dir="data/bev_cache", point_cloud_range=point_cloud_range),
+    dict(type="LoadCachedBEV", cache_dir="data/bev_cache", cache_format="npy"),
     dict(type="PadMultiViewImage", size_divisor=32),
     dict(type='LoadAnnotations3D_E2E', 
          with_bbox_3d=False,
@@ -435,7 +435,7 @@ test_pipeline = [
 ]
 data = dict(
     samples_per_gpu=1,
-    workers_per_gpu=8,
+    workers_per_gpu=16,
     train=dict(
         type=dataset_type,
         file_client_args=file_client_args,
@@ -528,15 +528,15 @@ lr_config = dict(
 )
 total_epochs = 6
 evaluation = dict(
-    interval=6,
+    interval=1,
     pipeline=test_pipeline,
     planning_evaluation_strategy=planning_evaluation_strategy,
 )
 runner = dict(type="EpochBasedRunner", max_epochs=total_epochs)
 log_config = dict(
-    interval=10, hooks=[dict(type="TextLoggerHook"), dict(type="TensorboardLoggerHook")]
+    interval=10, hooks=[dict(type="TextLoggerHook"), dict(type="WandbLoggerHook")]
 )
 checkpoint_config = dict(interval=1)
 load_from = None
 
-find_unused_parameters = False
+find_unused_parameters = True

@@ -210,14 +210,12 @@ class LoadAnnotations3D_E2E(LoadAnnotations3D):
 
 @PIPELINES.register_module()
 class LoadCachedBEV:
-    def __init__(self, cache_dir="", cache_format="npz", point_cloud_range=(-51.2, -51.2, -5.0, 51.2, 51.2, 3.0)):
+    def __init__(self, cache_dir="", cache_format="npy"):
         self.cache_dir = cache_dir
         self.cache_format = cache_format
         self.pixel_per_meter = 1/(4*0.128) # 1 pixel is 4*0.128 meters as the original range is downsampled by 4
-        self.original_point_cloud_range=(-69.12, -69.12, -2, 69.12, 69.12, 6)
         #self.point_cloud_range = point_cloud_range
-        self.input_bev_size = (270, 270)
-        
+        self.input_bev_size = (224, 224)
         self.output_bev_size = (200, 200)
 
     def __call__(self, results):
@@ -231,7 +229,6 @@ class LoadCachedBEV:
         """
         sample_token: str = results['sample_idx']
         cache_path = os.path.join(self.cache_dir, f"{sample_token}.{self.cache_format}")
-        cache_path = "data/bev_cache/test.npy"
         bev = np.load(cache_path)  # shape: (num_channels, height, width)
         # if num channels is 128, lets duplicate them to 256 
         # TODO: remove this hack when we have new cached features
