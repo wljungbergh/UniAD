@@ -386,6 +386,9 @@ class UniADTrack(MVXTwoStageDetector):
 
         if cached_bev is not None:
             bev_embed = cached_bev  # bs dim h w
+            if isinstance(bev_embed, list):
+                # concat
+                bev_embed = torch.cat(bev_embed, dim=0)
             bev_pos = torch.zeros_like(bev_embed)
             #flatten and permute
             bev_embed = rearrange(bev_embed, 'b c h w -> (h w) b c')
@@ -666,6 +669,8 @@ class UniADTrack(MVXTwoStageDetector):
         # NOTE: You can replace BEVFormer with other BEV encoder and provide bev_embed here
         if cached_bev is not None:
             bev_embed = cached_bev
+            if isinstance(bev_embed, list):
+                bev_embed = torch.cat(bev_embed, dim=0)
             bev_pos = torch.zeros_like(bev_embed)
             #flatten and permute
             bev_embed = rearrange(bev_embed, 'b c h w -> (h w) b c')
