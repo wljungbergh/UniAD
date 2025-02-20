@@ -335,6 +335,7 @@ class UniADTrack(MVXTwoStageDetector):
 
     # Generate bev using bev_encoder in BEVFormer
     def get_bevs(self, imgs, img_metas, prev_img=None, prev_img_metas=None, prev_bev=None):
+        raise NotImplementedError("We should not be here")
         if prev_img is not None and prev_img_metas is not None:
             assert prev_bev is None
             prev_bev = self.get_history_bev(prev_img, prev_img_metas)
@@ -371,6 +372,7 @@ class UniADTrack(MVXTwoStageDetector):
         all_matched_indices=None,
         all_instances_pred_logits=None,
         all_instances_pred_boxes=None,
+        cached_bev=None
     ):
         """
         Perform forward only on one frame. Called in  forward_train
@@ -381,11 +383,19 @@ class UniADTrack(MVXTwoStageDetector):
                 it means this frame is the end of the training clip,
                 so no need to call velocity update
         """
-        # NOTE: You can replace BEVFormer with other BEV encoder and provide bev_embed here
-        bev_embed, bev_pos = self.get_bevs(
-            img, img_metas,
-            prev_img=prev_img, prev_img_metas=prev_img_metas,
-        )
+
+        if cached_bev is not None:
+            bev_embed = cached_bev  # bs dim h w
+            bev_pos = torch.zeros_like(bev_embed)
+            #flatten and permute
+            bev_embed = rearrange(bev_embed, 'b c h w -> (h w) b c')
+        else:
+            raise NotImplementedError
+            # NOTE: You can replace BEVFormer with other BEV encoder and provide bev_embed here
+            bev_embed, bev_pos = self.get_bevs(
+                img, img_metas,
+                prev_img=prev_img, prev_img_metas=prev_img_metas,
+            )
 
         det_output = self.pts_bbox_head.get_detections(
             bev_embed,
@@ -503,7 +513,8 @@ class UniADTrack(MVXTwoStageDetector):
                             l2g_t,
                             l2g_r_mat,
                             img_metas,
-                            timestamp):
+                            timestamp, 
+                            cached_bev=None):
         """Forward funciton
         Args:
         Returns:
@@ -567,6 +578,7 @@ class UniADTrack(MVXTwoStageDetector):
                 all_matched_idxes,
                 all_instances_pred_logits,
                 all_instances_pred_boxes,
+                cached_bev
             )
             # all_query_embeddings: len=dec nums, N*256
             # all_matched_idxes: len=dec nums, N*2
@@ -628,6 +640,7 @@ class UniADTrack(MVXTwoStageDetector):
         l2g_r2=None,
         l2g_t2=None,
         time_delta=None,
+        cached_bev=None
     ):
         """
         img: B, num_cam, C, H, W = img.shape
@@ -651,7 +664,14 @@ class UniADTrack(MVXTwoStageDetector):
         track_instances = Instances.cat([other_inst, active_inst])
 
         # NOTE: You can replace BEVFormer with other BEV encoder and provide bev_embed here
-        bev_embed, bev_pos = self.get_bevs(img, img_metas, prev_bev=prev_bev)
+        if cached_bev is not None:
+            bev_embed = cached_bev
+            bev_pos = torch.zeros_like(bev_embed)
+            #flatten and permute
+            bev_embed = rearrange(bev_embed, 'b c h w -> (h w) b c')
+        else:
+            raise NotImplementedError
+            bev_embed, bev_pos = self.get_bevs(img, img_metas, prev_bev=prev_bev)
         det_output = self.pts_bbox_head.get_detections(
             bev_embed, 
             object_query_embeds=track_instances.query,
@@ -712,6 +732,7 @@ class UniADTrack(MVXTwoStageDetector):
         l2g_r_mat=None,
         img_metas=None,
         timestamp=None,
+        cached_bev=None,
     ):
         """only support bs=1 and sequential input"""
 
@@ -755,6 +776,7 @@ class UniADTrack(MVXTwoStageDetector):
             l2g_r2,
             l2g_t2,
             time_delta,
+            cached_bev,
         )
 
         self.prev_bev = frame_res["bev_embed"]
@@ -847,4 +869,3 @@ class UniADTrack(MVXTwoStageDetector):
             result_dict = None
 
         return [result_dict]
-

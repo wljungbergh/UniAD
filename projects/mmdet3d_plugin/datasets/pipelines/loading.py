@@ -210,12 +210,15 @@ class LoadAnnotations3D_E2E(LoadAnnotations3D):
 
 @PIPELINES.register_module()
 class LoadCachedBEV:
-    def __init__(self, cache_dir="", cache_format="npy", point_cloud_range=(-51.2, -51.2, -5.0, 51.2, 51.2, 3.0)):
+    def __init__(self, cache_dir="", cache_format="npz", point_cloud_range=(-51.2, -51.2, -5.0, 51.2, 51.2, 3.0)):
         self.cache_dir = cache_dir
         self.cache_format = cache_format
-        self.pixel_per_meter = 1/0.16 # 1 pixel is 0.16 meters
+        self.pixel_per_meter = 1/(4*0.128) # 1 pixel is 4*0.128 meters as the original range is downsampled by 4
         self.original_point_cloud_range=(-69.12, -69.12, -2, 69.12, 69.12, 6)
-        self.point_cloud_range = point_cloud_range
+        #self.point_cloud_range = point_cloud_range
+        self.input_bev_size = (270, 270)
+        
+        self.output_bev_size = (200, 200)
 
     def __call__(self, results):
         """Transform BEV features from ego to lidar coordinate system and crop to point cloud range.
@@ -228,68 +231,22 @@ class LoadCachedBEV:
         """
         sample_token: str = results['sample_idx']
         cache_path = os.path.join(self.cache_dir, f"{sample_token}.{self.cache_format}")
+        cache_path = "data/bev_cache/test.npy"
         bev = np.load(cache_path)  # shape: (num_channels, height, width)
+        # if num channels is 128, lets duplicate them to 256 
+        # TODO: remove this hack when we have new cached features
+        if bev.shape[0] == 128:
+            bev = np.concatenate([bev, bev], axis=0)
+            self.input_bev_size = (216, 216)
+            
+        center_offset_px = round(1.0 * self.pixel_per_meter) # should be two
+
+        cropped_bev = np.zeros((bev.shape[0], self.output_bev_size[0], self.output_bev_size[1]), dtype=bev.dtype)
+        orig_center_px = self.input_bev_size[0] // 2
+        new_center_px = orig_center_px + center_offset_px
+        half_size = self.output_bev_size[0] // 2
+        cropped_bev = bev[:, new_center_px-half_size:new_center_px+half_size, orig_center_px-half_size:orig_center_px+half_size]
+        # this should be flattened [h*w, 1, 256]
         
-        original_shape = bev.shape
-        # Rotate BEV 90 degrees counterclockwise to align with lidar coordinate system
-        bev = np.rot90(bev, k=1, axes=(1, 2))
-        
-        # Calculate lidar offset translation (1m forward)
-        forward_offset_pixels = int(1.0 * self.pixel_per_meter)
-        
-        # Create padded array for translation
-        padded_bev = np.zeros((
-            original_shape[0],  # channels
-            original_shape[1] + forward_offset_pixels * 2,  # height
-            original_shape[2] + forward_offset_pixels * 2,  # width
-        ))
-        
-        # Place rotated BEV in padded array with offset
-        padded_bev[
-            :,
-            forward_offset_pixels : forward_offset_pixels + bev.shape[1],
-            forward_offset_pixels : forward_offset_pixels + bev.shape[2],
-        ] = bev
-        
-        # Crop to original size, centered at lidar position
-        translated_bev = padded_bev[
-            :,
-            forward_offset_pixels : forward_offset_pixels + original_shape[1],
-            forward_offset_pixels : forward_offset_pixels + original_shape[2],
-        ]
-        
-        # Calculate dimensions for cropping
-        original_width_meters = (
-            self.original_point_cloud_range[3] - self.original_point_cloud_range[0]
-        )
-        original_height_meters = (
-            self.original_point_cloud_range[4] - self.original_point_cloud_range[1]
-        )
-        
-        # Calculate crop indices in pixels
-        left_crop = int(
-            ((self.point_cloud_range[0] - self.original_point_cloud_range[0]) 
-             / original_width_meters * translated_bev.shape[2])
-        )
-        right_crop = int(
-            ((self.original_point_cloud_range[3] - self.point_cloud_range[3]) 
-             / original_width_meters * translated_bev.shape[2])
-        )
-        bottom_crop = int(
-            ((self.point_cloud_range[1] - self.original_point_cloud_range[1]) 
-             / original_height_meters * translated_bev.shape[1])
-        )
-        top_crop = int(
-            ((self.original_point_cloud_range[4] - self.point_cloud_range[4]) 
-             / original_height_meters * translated_bev.shape[1])
-        )
-        
-        # Perform final crop
-        cropped_bev = translated_bev[
-            :,
-            bottom_crop : -top_crop if top_crop > 0 else None,
-            left_crop : -right_crop if right_crop > 0 else None,
-        ]
-        
-        results["bev_embed"] = cropped_bev
+        results["cached_bev_embed"] = cropped_bev
         return results

@@ -159,9 +159,9 @@ class UniAD(UniADTrack):
         losses = dict()
         len_queue = img.size(1)
         
-
+        cached_bev = kwargs.get('cached_bev_embed', None)
         losses_track, outs_track = self.forward_track_train(img, gt_bboxes_3d, gt_labels_3d, gt_past_traj, gt_past_traj_mask, gt_inds, gt_sdc_bbox, gt_sdc_label,
-                                                        l2g_t, l2g_r_mat, img_metas, timestamp)
+                                                        l2g_t, l2g_r_mat, img_metas, timestamp, cached_bev)
         losses_track = self.loss_weighted_and_prefixed(losses_track, prefix='track')
         losses.update(losses_track)
         
@@ -289,7 +289,7 @@ class UniAD(UniADTrack):
         timestamp = timestamp[0] if timestamp is not None else None
 
         result = [dict() for i in range(len(img_metas))]
-        result_track = self.simple_test_track(img, l2g_t, l2g_r_mat, img_metas, timestamp)
+        result_track = self.simple_test_track(img, l2g_t, l2g_r_mat, img_metas, timestamp, kwargs.get('cached_bev_embed', None))
 
         # Upsample bev for tiny model        
         result_track[0] = self.upsample_bev_if_tiny(result_track[0])

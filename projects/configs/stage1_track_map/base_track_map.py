@@ -46,7 +46,9 @@ _dim_half_ = _pos_dim_
 canvas_size = (bev_h_, bev_w_)
 
 # NOTE: You can change queue_length from 5 to 3 to save GPU memory, but at risk of performance drop.
-queue_length = 5  # each sequence contains `queue_length` frames.
+# NOTE; we can change this -> we dont use the sensors anyhow
+queue_length = 1  # each sequence contains `queue_length` frames.
+
 
 ### traj prediction args ###
 predict_steps = 12
@@ -81,38 +83,18 @@ train_gt_iou_threshold=0.3
 model = dict(
     type="UniAD",
     gt_iou_threshold=train_gt_iou_threshold,
+    embed_dims=_dim_,
     queue_length=queue_length,
     use_grid_mask=True,
     video_test_mode=True,
     num_query=900,
     num_classes=10,
     pc_range=point_cloud_range,
-    img_backbone=dict(
-        type="ResNet",
-        depth=101,
-        num_stages=4,
-        out_indices=(1, 2, 3),
-        frozen_stages=4,
-        norm_cfg=dict(type="BN2d", requires_grad=False),
-        norm_eval=True,
-        style="caffe",
-        dcn=dict(
-            type="DCNv2", deform_groups=1, fallback_on_stride=False
-        ),  # original DCNv2 will print log when perform load_state_dict
-        stage_with_dcn=(False, False, True, True),
-    ),
-    img_neck=dict(
-        type="FPN",
-        in_channels=[512, 1024, 2048],
-        out_channels=_dim_,
-        start_level=0,
-        add_extra_convs="on_output",
-        num_outs=4,
-        relu_before_extra_convs=True,
-    ),
-    freeze_img_backbone=True,
-    freeze_img_neck=False,
-    freeze_bn=False,
+    img_backbone=None,
+    img_neck=None,
+    freeze_img_backbone=False, # we dont have one 
+    freeze_img_neck=False,# we dont have one 
+    freeze_bn=False,# we dont have one 
     score_thresh=0.4,
     filter_score_thresh=0.35,
     qim_args=dict(
@@ -162,42 +144,7 @@ model = dict(
             use_shift=True,
             use_can_bus=True,
             embed_dims=_dim_,
-            encoder=dict(
-                type="BEVFormerEncoder",
-                num_layers=6,
-                pc_range=point_cloud_range,
-                num_points_in_pillar=4,
-                return_intermediate=False,
-                transformerlayers=dict(
-                    type="BEVFormerLayer",
-                    attn_cfgs=[
-                        dict(
-                            type="TemporalSelfAttention", embed_dims=_dim_, num_levels=1
-                        ),
-                        dict(
-                            type="SpatialCrossAttention",
-                            pc_range=point_cloud_range,
-                            deformable_attention=dict(
-                                type="MSDeformableAttention3D",
-                                embed_dims=_dim_,
-                                num_points=8,
-                                num_levels=_num_levels_,
-                            ),
-                            embed_dims=_dim_,
-                        ),
-                    ],
-                    feedforward_channels=_ffn_dim_,
-                    ffn_dropout=0.1,
-                    operation_order=(
-                        "self_attn",
-                        "norm",
-                        "cross_attn",
-                        "norm",
-                        "ffn",
-                        "norm",
-                    ),
-                ),
-            ),
+            encoder=None, # we dont use the encoder
             decoder=dict(
                 type="DetectionTransformerDecoder",
                 num_layers=6,
@@ -370,6 +317,7 @@ ann_file_test=info_root + f"nuscenes_infos_temporal_val.pkl"
 train_pipeline = [
     dict(type="LoadMultiViewImageFromFilesInCeph", to_float32=True, file_client_args=file_client_args, img_root=data_root),
     dict(type="PhotoMetricDistortionMultiViewImage"),
+    dict(type="LoadCachedBEV", cache_dir="data/bev_cache", point_cloud_range=point_cloud_range),
     dict(
         type="LoadAnnotations3D_E2E",
         with_bbox_3d=True,
@@ -426,6 +374,8 @@ train_pipeline = [
             "sdc_planning",	
             "sdc_planning_mask",	
             "command",
+            # cached BEV
+            "cached_bev_embed"
         ],
     ),
 ]
@@ -433,6 +383,7 @@ test_pipeline = [
     dict(type='LoadMultiViewImageFromFilesInCeph', to_float32=True,
             file_client_args=file_client_args, img_root=data_root),
     dict(type="NormalizeMultiviewImage", **img_norm_cfg),
+    dict(type="LoadCachedBEV", cache_dir="data/bev_cache", point_cloud_range=point_cloud_range),
     dict(type="PadMultiViewImage", size_divisor=32),
     dict(type='LoadAnnotations3D_E2E', 
          with_bbox_3d=False,
@@ -475,6 +426,8 @@ test_pipeline = [
                                             "sdc_planning",	
                                             "sdc_planning_mask",	
                                             "command",
+                                            # cached BEV
+                                            "cached_bev_embed"
                                         ]
             ),
         ],
@@ -584,6 +537,6 @@ log_config = dict(
     interval=10, hooks=[dict(type="TextLoggerHook"), dict(type="TensorboardLoggerHook")]
 )
 checkpoint_config = dict(interval=1)
-load_from = "ckpts/bevformer_r101_dcn_24ep.pth"
+load_from = None
 
-find_unused_parameters = True
+find_unused_parameters = False

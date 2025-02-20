@@ -47,7 +47,10 @@ class PerceptionTransformer(BaseModule):
                  rotate_center=[100, 100],
                  **kwargs):
         super(PerceptionTransformer, self).__init__(**kwargs)
-        self.encoder = build_transformer_layer_sequence(encoder)
+        if encoder is not None:
+            self.encoder = build_transformer_layer_sequence(encoder)
+        else:
+            self.encoder = None
         self.decoder = build_transformer_layer_sequence(decoder)
         self.embed_dims = embed_dims
         self.num_feature_levels = num_feature_levels
