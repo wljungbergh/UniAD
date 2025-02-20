@@ -18,12 +18,9 @@ GPUS=8                                             #
 # -------------------------------------------------- #
 GPUS_PER_NODE=$(($GPUS<8?$GPUS:8))
 
-
-# is 'dos' in CFG
-if [[ $CFG == *"dos"* ]]; then
+if echo "$CFG" | grep -q "dos"; then
     cache_path=/proj/cvl/users/x_willj/nuscenes_wazabi_bev_cache/doslo-nusc
     name=dos
-
 else
     cache_path=/proj/cvl/users/x_willj/nuscenes_wazabi_bev_cache/uno-nusc
     name=uno

@@ -23,10 +23,9 @@ dos_path=/proj/cvl/users/x_willj/nuscenes_wazabi_bev_cache/doslo-nusc
 uno_path=/proj/cvl/users/x_willj/nuscenes_wazabi_bev_cache/uno-nusc
 
 
-if [ $CFG == *"dos"* ]; then
+if echo "$CFG" | grep -q "dos"; then
     cache_path=$dos_path
     name=dos
-
 else
     cache_path=$uno_path
     name=uno
@@ -36,7 +35,7 @@ fi
 WORK_DIR=$(echo ${CFG%.*} | sed -e "s/configs/work_dirs/g")/$name-$T/
 
 # see if 'stage2' in CFG
-if [[ $CFG == *"stage2"* ]]; then
+if echo "$CFG" | grep -q "stage2"; then
     suffix="stage2"
 else
     suffix="stage1"
