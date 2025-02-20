@@ -309,9 +309,9 @@ dataset_type = "NuScenesE2EDataset"
 data_root = "data/nuscenes/"
 info_root = "data/nuscenes/infos/"
 file_client_args = dict(backend="disk")
-ann_file_train=info_root + f"nuscenes_infos_temporal_train_wazabi.pkl"
-ann_file_val=info_root + f"nuscenes_infos_temporal_val_wazabi.pkl"
-ann_file_test=info_root + f"nuscenes_infos_temporal_val_wazabi.pkl"
+ann_file_train=info_root + "nuscenes_infos_temporal_train_wazabi.pkl"
+ann_file_val=info_root + "nuscenes_infos_temporal_val_wazabi.pkl"
+ann_file_test=info_root + "nuscenes_infos_temporal_val_wazabi.pkl"
 
 
 train_pipeline = [
@@ -435,7 +435,7 @@ test_pipeline = [
 ]
 data = dict(
     samples_per_gpu=1,
-    workers_per_gpu=16,
+    workers_per_gpu=8,
     train=dict(
         type=dataset_type,
         file_client_args=file_client_args,
