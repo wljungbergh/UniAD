@@ -38,7 +38,7 @@ bev_w_ = 200
 _feed_dim_ = _ffn_dim_
 _dim_half_ = _pos_dim_
 canvas_size = (bev_h_, bev_w_)
-queue_length = 3  # each sequence contains `queue_length` frames.
+queue_length = 1  # each sequence contains `queue_length` frames.
 
 ### traj prediction args ###
 predict_steps = 12
@@ -80,33 +80,12 @@ model = dict(
     num_classes=10,
     vehicle_id_list=vehicle_id_list,
     pc_range=point_cloud_range,
-    img_backbone=dict(
-        type="ResNet",
-        depth=101,
-        num_stages=4,
-        out_indices=(1, 2, 3),
-        frozen_stages=4,
-        norm_cfg=dict(type="BN2d", requires_grad=False),
-        norm_eval=True,
-        style="caffe",
-        dcn=dict(
-            type="DCNv2", deform_groups=1, fallback_on_stride=False
-        ),  # original DCNv2 will print log when perform load_state_dict
-        stage_with_dcn=(False, False, True, True),
-    ),
-    img_neck=dict(
-        type="FPN",
-        in_channels=[512, 1024, 2048],
-        out_channels=_dim_,
-        start_level=0,
-        add_extra_convs="on_output",
-        num_outs=4,
-        relu_before_extra_convs=True,
-    ),
-    freeze_img_backbone=True,
-    freeze_img_neck=True,
-    freeze_bn=True,
-    freeze_bev_encoder=True,
+    img_backbone=None,
+    img_neck=None,
+    freeze_img_backbone=False, # we dont have one
+    freeze_img_neck=False, # we dont have one
+    freeze_bn=False, # we dont have one
+    freeze_bev_encoder=False, # we dont have one
     score_thresh=0.4,
     filter_score_thresh=0.35,
     qim_args=dict(
@@ -155,42 +134,7 @@ model = dict(
             use_shift=True,
             use_can_bus=True,
             embed_dims=_dim_,
-            encoder=dict(
-                type="BEVFormerEncoder",
-                num_layers=6,
-                pc_range=point_cloud_range,
-                num_points_in_pillar=4,
-                return_intermediate=False,
-                transformerlayers=dict(
-                    type="BEVFormerLayer",
-                    attn_cfgs=[
-                        dict(
-                            type="TemporalSelfAttention", embed_dims=_dim_, num_levels=1
-                        ),
-                        dict(
-                            type="SpatialCrossAttention",
-                            pc_range=point_cloud_range,
-                            deformable_attention=dict(
-                                type="MSDeformableAttention3D",
-                                embed_dims=_dim_,
-                                num_points=8,
-                                num_levels=_num_levels_,
-                            ),
-                            embed_dims=_dim_,
-                        ),
-                    ],
-                    feedforward_channels=_ffn_dim_,
-                    ffn_dropout=0.1,
-                    operation_order=(
-                        "self_attn",
-                        "norm",
-                        "cross_attn",
-                        "norm",
-                        "ffn",
-                        "norm",
-                    ),
-                ),
-            ),
+            encoder=None, # we dont use the encoder - we have our own
             decoder=dict(
                 type="DetectionTransformerDecoder",
                 num_layers=6,
@@ -416,7 +360,7 @@ model = dict(
         group_id_list=group_id_list,
         num_anchor=6,
         use_nonlinear_optimizer=use_nonlinear_optimizer,
-        anchor_info_path='data/others/motion_anchor_infos_mode6.pkl',
+        anchor_info_path='data/nuscenes/others/motion_anchor_infos_mode6.pkl',
         transformerlayers=dict(
             type='MotionTransformerDecoder',
             pc_range=point_cloud_range,
@@ -474,16 +418,18 @@ model = dict(
 )
 dataset_type = "NuScenesE2EDataset"
 data_root = "data/nuscenes/"
-info_root = "data/infos/"
+info_root = "data/nuscenes/infos/"
 file_client_args = dict(backend="disk")
-ann_file_train=info_root + f"nuscenes_infos_temporal_train.pkl"
-ann_file_val=info_root + f"nuscenes_infos_temporal_val.pkl"
-ann_file_test=info_root + f"nuscenes_infos_temporal_val.pkl"
+ann_file_train=info_root + "nuscenes_infos_temporal_train_wazabi.pkl"
+ann_file_val=info_root + "nuscenes_infos_temporal_val_wazabi.pkl"
+ann_file_test=info_root + "nuscenes_infos_temporal_val_wazabi.pkl"
+
 
 
 train_pipeline = [
     dict(type="LoadMultiViewImageFromFilesInCeph", to_float32=True, file_client_args=file_client_args, img_root=data_root),
     dict(type="PhotoMetricDistortionMultiViewImage"),
+    dict(type="LoadCachedBEV", cache_dir="data/bev_cache", cache_format="npy"),
     dict(
         type="LoadAnnotations3D_E2E",
         with_bbox_3d=True,
@@ -540,6 +486,8 @@ train_pipeline = [
             "sdc_planning",	
             "sdc_planning_mask",	
             "command",
+            # cached bev
+            "cached_bev_embed"
         ],
     ),
 ]
@@ -547,6 +495,7 @@ test_pipeline = [
     dict(type='LoadMultiViewImageFromFilesInCeph', to_float32=True,
             file_client_args=file_client_args, img_root=data_root),
     dict(type="NormalizeMultiviewImage", **img_norm_cfg),
+    dict(type="LoadCachedBEV", cache_dir="data/bev_cache", cache_format="npy"),
     dict(type="PadMultiViewImage", size_divisor=32),
     dict(type='LoadAnnotations3D_E2E', 
          with_bbox_3d=False,
@@ -589,6 +538,8 @@ test_pipeline = [
                                             "sdc_planning",	
                                             "sdc_planning_mask",	
                                             "command",
+                                            # cached bev
+                                            "cached_bev_embed"
                                         ]
             ),
         ],
@@ -596,7 +547,7 @@ test_pipeline = [
 ]
 data = dict(
     samples_per_gpu=1,
-    workers_per_gpu=8,
+    workers_per_gpu=16,
     train=dict(
         type=dataset_type,
         file_client_args=file_client_args,
@@ -696,7 +647,7 @@ evaluation = dict(
 )
 runner = dict(type="EpochBasedRunner", max_epochs=total_epochs)
 log_config = dict(
-    interval=10, hooks=[dict(type="TextLoggerHook"), dict(type="TensorboardLoggerHook")]
+    interval=10, hooks=[dict(type="TextLoggerHook"), dict(type="WandbLoggerHook")]
 )
 checkpoint_config = dict(interval=1)
 load_from = "ckpts/uniad_base_track_map.pth"
