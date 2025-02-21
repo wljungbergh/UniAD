@@ -51,5 +51,6 @@ singularity exec --nv \
     tools/test.py \
     $CFG \
     $CKPT \
+    --out $WORK_DIR/results.pkl \
     --launcher pytorch ${@:4} \
     --eval bbox

@@ -513,6 +513,13 @@ class NuScenesEval_custom(NuScenesEval):
                                                      verbose=verbose)
         self.gt_boxes = load_gt(self.nusc, self.eval_set, DetectionBox_modified, verbose=verbose)
 
+        # remove all gt_boxes that are not in the set of pred_boxes, this is because we dont run eval on all gt_boxes
+        # this is hacky but works
+        pred_samples = set(self.pred_boxes.sample_tokens)
+        keys_to_remove = set(self.gt_boxes.boxes.keys()) - pred_samples
+        for k in keys_to_remove:
+            del self.gt_boxes.boxes[k]
+            
         assert set(self.pred_boxes.sample_tokens) == set(self.gt_boxes.sample_tokens), \
             "Samples in split doesn't match samples in predictions."
 
